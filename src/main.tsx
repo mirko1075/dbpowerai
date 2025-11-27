@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createBrowserRouter, RouterProvider, useLocation } from 'react-router-dom';
 import { trackEvent } from './lib/tracking';
 import { HelmetProvider } from 'react-helmet-async';
+import { AuthProvider } from './contexts/AuthContext.tsx';
 import Layout from './components/Layout.tsx';
 import App from './App.tsx';
 import Landing from './pages/Landing.tsx';
@@ -237,7 +238,9 @@ const router = createBrowserRouter([
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <HelmetProvider>
-      <RouterProvider router={router} />
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
     </HelmetProvider>
   </StrictMode>
 );

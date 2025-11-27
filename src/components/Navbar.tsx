@@ -1,40 +1,47 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { getProfile, UserProfile } from '../lib/profileService';
-import { Menu, X, User, LogOut, ChevronDown } from 'lucide-react';
+import { Menu, X, ChevronDown } from 'lucide-react';
 
 function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [learnOpen, setLearnOpen] = useState(false);
   const [learnMobileOpen, setLearnMobileOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Use centralized auth context instead of local state
+  const { user, signOut } = useAuth();
+
+  // DEBUG: Log user state
+  console.log('🔵 Navbar render - user:', user?.email || 'NO USER');
 
   const navigate = useNavigate();
   const location = useLocation();
 
-  const learnContentRef = useRef<HTMLDivElement | null>(null);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
+    await signOut();
     setMobileMenuOpen(false);
     navigate('/');
   };
 
+  // Load profile when user changes
   useEffect(() => {
     const loadProfile = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const userProfile = await getProfile(user.id);
         setProfile(userProfile);
         checkAdminRole();
+      } else {
+        setProfile(null);
+        setIsAdmin(false);
       }
     };
     loadProfile();
-  }, []);
+  }, [user]); // Re-run when user changes from AuthContext
 
   const checkAdminRole = async () => {
     try {
@@ -57,20 +64,6 @@ function Navbar() {
       setIsAdmin(false);
     }
   };
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_, session) => {
-        setUser(session?.user ?? null);
-      }
-    );
-
-    return () => subscription.unsubscribe();
-  }, []);
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -338,10 +331,37 @@ function Navbar() {
 
             <a href="/pricing" className={`navbar-link ${isActive('/pricing') ? 'active' : ''}`}>Pricing</a>
             <a href="/contact" className={`navbar-link ${isActive('/contact') ? 'active' : ''}`}>Contact</a>
+
+            {/* LOGGED OUT: Show Sign in / Sign up */}
             {!user && (
               <>
                 <a href="/login" className={`navbar-link ${isActive('/login') ? 'active' : ''}`}>Sign in</a>
                 <a href="/signup" className="navbar-link" style={{ color: '#00ffa3' }}>Sign up</a>
+              </>
+            )}
+
+            {/* LOGGED IN: Show Dashboard, Profile, Logout */}
+            {user && (
+              <>
+                <a href="/dashboard" className={`navbar-link ${isActive('/dashboard') ? 'active' : ''}`}>Dashboard</a>
+                <a href="/app" className={`navbar-link ${isActive('/app') ? 'active' : ''}`}>Analyzer</a>
+                {isAdmin && (
+                  <a href="/admin" className={`navbar-link ${isActive('/admin') ? 'active' : ''}`}>Admin</a>
+                )}
+                <a href="/profile" className={`navbar-link ${isActive('/profile') ? 'active' : ''}`}>Profile</a>
+                <button
+                  onClick={handleLogout}
+                  className="navbar-link"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 0,
+                    font: 'inherit',
+                  }}
+                >
+                  Logout
+                </button>
               </>
             )}
           </div>
@@ -386,12 +406,53 @@ function Navbar() {
 
           <a href="/pricing" className="navbar-mobile-link">Pricing</a>
           <a href="/contact" className="navbar-mobile-link">Contact</a>
-          {!user ? (
+
+          {/* MOBILE - LOGGED OUT */}
+          {!user && (
             <>
               <a href="/login" className="navbar-mobile-link">Sign in</a>
               <a href="/signup" className="navbar-mobile-link" style={{ color: '#00ffa3' }}>Sign up</a>
             </>
-          ) : null}
+          )}
+
+          {/* MOBILE - LOGGED IN */}
+          {user && (
+            <>
+              <a href="/dashboard" className="navbar-mobile-link">Dashboard</a>
+              <a href="/app" className="navbar-mobile-link">Analyzer</a>
+              {isAdmin && (
+                <a href="/admin" className="navbar-mobile-link">Admin</a>
+              )}
+              <a href="/profile" className="navbar-mobile-link">Profile</a>
+              <button
+                onClick={handleLogout}
+                className="navbar-mobile-link"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '14px',
+                  borderRadius: '6px',
+                  textAlign: 'left',
+                  width: '100%',
+                  font: 'inherit',
+                  fontSize: '18px',
+                  color: '#e5e5e5',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(0,255,163,0.1)';
+                  e.currentTarget.style.color = '#00ffa3';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = '#e5e5e5';
+                }}
+              >
+                Logout
+              </button>
+            </>
+          )}
         </div>
       </nav>
     </>

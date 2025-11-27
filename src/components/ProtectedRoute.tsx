@@ -1,44 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const [loading, setLoading] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
+  const { user, isLoading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+    // Once loading is done and there's no user, redirect to login
+    if (!isLoading && !user) {
+      console.log('🔒 ProtectedRoute: No user found, redirecting to login');
+      navigate('/login');
+    }
+  }, [user, isLoading, navigate]);
 
-      if (!session) {
-        navigate('/login');
-      } else {
-        setAuthenticated(true);
-      }
-      setLoading(false);
-    };
-
-    checkAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        navigate('/login');
-      } else {
-        setAuthenticated(true);
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [navigate]);
-
-  if (loading) {
+  // Show loading spinner while checking auth
+  if (isLoading) {
     return (
       <div style={{
         minHeight: '100vh',
@@ -69,10 +50,13 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
-  if (!authenticated) {
+  // If not loading and no user, return null (redirect happens in useEffect)
+  if (!user) {
     return null;
   }
 
+  // User is authenticated, render the protected content
+  console.log('✅ ProtectedRoute: User authenticated, rendering protected content');
   return <>{children}</>;
 }
 
