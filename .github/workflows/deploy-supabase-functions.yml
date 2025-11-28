@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "supabase/functions/**"
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
 
 jobs:
   deploy:
