@@ -1,6 +1,10 @@
 name: Deploy Supabase Functions
 
 on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
   push:
     branches:
       - main
