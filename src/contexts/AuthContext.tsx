@@ -19,40 +19,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Initialize auth state
     const initializeAuth = async () => {
-      console.log('🚀 AuthContext: Starting initialization...');
-      console.log('📍 Current URL:', window.location.href);
-      console.log('🔗 URL Hash:', window.location.hash);
-      console.log('🔍 URL Search:', window.location.search);
-
       try {
         // CRITICAL: Add 200ms delay to allow Supabase to parse URL session after OAuth redirect
         // This prevents the race condition where getSession() is called before URL tokens are extracted
-        console.log('⏱️ AuthContext: Waiting 200ms for URL session detection...');
         await new Promise(resolve => setTimeout(resolve, 200));
 
-        console.log('🔍 AuthContext: Calling getSession()...');
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
-
-        console.log('📊 AuthContext: getSession() result:', {
-          hasSession: !!initialSession,
-          hasError: !!error,
-          user: initialSession?.user?.email || 'none',
-          expiresAt: initialSession?.expires_at,
-        });
 
         if (error) {
           console.error('❌ Auth initialization error:', error);
         }
 
         if (initialSession) {
-          console.log('✅ AuthContext: Initial session found for user:', initialSession.user.email);
           setSession(initialSession);
           setUser(initialSession.user);
         } else {
-          console.log('ℹ️ AuthContext: No initial session found');
-          console.log('🔎 Checking localStorage manually...');
-          const storedSession = localStorage.getItem('dbpowerai-auth-token');
-          console.log('💾 LocalStorage value:', storedSession ? 'EXISTS' : 'NULL');
           setSession(null);
           setUser(null);
         }
@@ -61,7 +42,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(null);
         setUser(null);
       } finally {
-        console.log('✅ AuthContext: Initialization complete, setting isLoading = false');
         setIsLoading(false);
       }
     };
@@ -69,26 +49,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initializeAuth();
 
     // Listen for auth state changes
-    console.log('👂 AuthContext: Setting up onAuthStateChange listener...');
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        console.log('🔄 AuthContext: Auth state changed:', {
-          event,
-          user: currentSession?.user?.email || 'no user',
-          hasSession: !!currentSession,
-          timestamp: new Date().toISOString(),
-        });
+        // Only log critical auth events
+        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+          console.log(`🔄 Auth: ${event}`, currentSession?.user?.email || 'no user');
+        }
 
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
-        // After auth state changes, we're no longer loading
-        if (isLoading) {
-          setIsLoading(false);
-        }
+        // CRITICAL FIX: Always set isLoading to false, no conditional check
+        // The previous conditional check caused a stale closure bug
+        setIsLoading(false);
       }
     );
-    console.log('✅ AuthContext: onAuthStateChange listener registered');
 
     // Cleanup subscription on unmount
     return () => {
@@ -98,7 +73,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     try {
-      console.log('👋 AuthContext: Signing out...');
       const { error } = await supabase.auth.signOut();
 
       if (error) {
@@ -109,7 +83,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // These will be set by onAuthStateChange, but we set them immediately for instant UI update
       setUser(null);
       setSession(null);
-      console.log('✅ AuthContext: Signed out successfully');
     } catch (error) {
       console.error('❌ Sign out failed:', error);
       throw error;
@@ -132,6 +105,6 @@ export function useAuth() {
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
-  console.log('context :>> ', context);
+
   return context;
 }

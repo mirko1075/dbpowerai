@@ -40,36 +40,28 @@ function Admin() {
   }, []);
 
   const checkAdminRole = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      setIsAdmin(false);
-      return;
-    }
-
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
         setIsAdmin(false);
         return;
       }
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin_run_tests?check=1`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-      });
+      const { data: profile, error } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
 
-      if (response.status === 200) {
-        setIsAdmin(true);
-      } else if (response.status === 403) {
+      if (error) {
+        console.error('Error checking admin role:', error);
         setIsAdmin(false);
-      } else {
-        setIsAdmin(false);
+        return;
       }
+
+      setIsAdmin(profile?.role === 'admin');
     } catch (error) {
-      console.error('Error checking admin role:', error);
+      console.error('Error in checkAdminRole:', error);
       setIsAdmin(false);
     }
   };

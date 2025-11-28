@@ -3,22 +3,23 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// DEBUG: Log environment variables (don't log keys in production!)
-console.log('🔧 Supabase Client Init:', {
-  url: supabaseUrl,
-  hasAnonKey: !!supabaseAnonKey,
-  anonKeyPrefix: supabaseAnonKey?.substring(0, 20) + '...',
-});
-
 if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('❌ Missing Supabase environment variables');
   throw new Error(
     'Missing Supabase environment variables. Please check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY'
   );
 }
 
-// DEBUG: Log URL at client creation time
-console.log('🌐 Current URL at Supabase client creation:', window.location.href);
-console.log('🔑 URL Hash:', window.location.hash);
+// Only log OAuth errors from URL for debugging
+const urlParams = new URLSearchParams(window.location.search);
+const hashParams = new URLSearchParams(window.location.hash.replace('#', ''));
+const oauthError = urlParams.get('error') || hashParams.get('error');
+if (oauthError) {
+  console.error('❌ OAuth error in URL:', {
+    error: oauthError,
+    description: urlParams.get('error_description') || hashParams.get('error_description'),
+  });
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -37,30 +38,38 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     // Storage key for session data
     storageKey: 'dbpowerai-auth-token',
 
-    // DEBUG: Custom storage to log all storage operations
+    // Custom storage with minimal logging (only errors and critical events)
     storage: {
       getItem: (key: string) => {
-        const value = localStorage.getItem(key);
-        console.log(`📖 Storage GET [${key}]:`, value ? 'EXISTS' : 'NULL');
-        return value;
+        try {
+          return localStorage.getItem(key);
+        } catch (error) {
+          console.error('❌ Storage GET error:', error);
+          return null;
+        }
       },
       setItem: (key: string, value: string) => {
-        console.log(`💾 Storage SET [${key}]:`, value.substring(0, 50) + '...');
-        localStorage.setItem(key, value);
+        try {
+          localStorage.setItem(key, value);
+        } catch (error) {
+          console.error('❌ Storage SET error:', error);
+        }
       },
       removeItem: (key: string) => {
-        console.log(`🗑️ Storage REMOVE [${key}]`);
-        localStorage.removeItem(key);
+        try {
+          localStorage.removeItem(key);
+        } catch (error) {
+          console.error('❌ Storage REMOVE error:', error);
+        }
       },
     },
   },
 });
 
-// DEBUG: Test localStorage immediately
+// Verify localStorage is accessible (critical for auth)
 try {
   localStorage.setItem('__test__', 'test');
   localStorage.removeItem('__test__');
-  console.log('✅ localStorage is accessible');
 } catch (error) {
-  console.error('❌ localStorage is NOT accessible:', error);
+  console.error('❌ CRITICAL: localStorage is not accessible. Authentication will fail.', error);
 }

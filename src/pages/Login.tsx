@@ -25,10 +25,12 @@ function Login() {
       });
 
       if (error) {
+        console.error('❌ OAuth error:', error);
         setMessage({ type: 'error', text: error.message });
         setGoogleLoading(false);
       }
     } catch (err: any) {
+      console.error('❌ Unexpected OAuth error:', err);
       setMessage({ type: 'error', text: 'An unexpected error occurred' });
       setGoogleLoading(false);
     }
