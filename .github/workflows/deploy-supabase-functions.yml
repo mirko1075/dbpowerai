@@ -1,11 +1,16 @@
 name: Deploy Supabase Functions
 
 on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
   push:
     branches:
       - main
     paths:
       - "supabase/functions/**"
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
 
 jobs:
   deploy:
@@ -30,10 +35,4 @@ jobs:
         run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}"
 
       - name: Deploy all functions
-        run: |
-          supabase functions deploy analyze
-          supabase functions deploy analyzeSimulations
-          supabase functions deploy usage
-          supabase functions deploy notify
-
-          
+        run: supabase functions deploy --all
