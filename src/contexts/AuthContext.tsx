@@ -72,20 +72,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('👂 AuthContext: Setting up onAuthStateChange listener...');
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        console.log('🔄 AuthContext: Auth state changed:', {
-          event,
-          user: currentSession?.user?.email || 'no user',
-          hasSession: !!currentSession,
-          timestamp: new Date().toISOString(),
-        });
+        console.group(`🔄 [${new Date().toISOString()}] AUTH STATE CHANGE`);
+        console.log('Event:', event);
+        console.log('Has Session:', !!currentSession);
+        console.log('User:', currentSession?.user?.email || 'NO USER');
+        console.log('User ID:', currentSession?.user?.id || 'NO ID');
+        console.log('Access Token:', currentSession?.access_token ? 'EXISTS (length: ' + currentSession.access_token.length + ')' : 'NULL');
+        console.log('Refresh Token:', currentSession?.refresh_token ? 'EXISTS' : 'NULL');
+        console.log('Expires At:', currentSession?.expires_at ? new Date(currentSession.expires_at * 1000).toISOString() : 'NULL');
+        console.log('Provider:', currentSession?.user?.app_metadata?.provider || 'unknown');
+        console.groupEnd();
 
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
-        // After auth state changes, we're no longer loading
-        if (isLoading) {
-          setIsLoading(false);
-        }
+        // CRITICAL FIX: Always set isLoading to false, no conditional check
+        // The previous conditional check caused a stale closure bug
+        setIsLoading(false);
       }
     );
     console.log('✅ AuthContext: onAuthStateChange listener registered');

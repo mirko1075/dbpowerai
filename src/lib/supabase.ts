@@ -19,6 +19,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // DEBUG: Log URL at client creation time
 console.log('🌐 Current URL at Supabase client creation:', window.location.href);
 console.log('🔑 URL Hash:', window.location.hash);
+console.log('🔍 URL Search:', window.location.search);
+
+// DIAGNOSTIC: Check if URL contains OAuth parameters
+const urlParams = new URLSearchParams(window.location.search);
+const hashParams = new URLSearchParams(window.location.hash.replace('#', ''));
+console.log('🔎 OAuth params in URL:', {
+  code: urlParams.get('code') || hashParams.get('code') || 'NONE',
+  access_token: urlParams.get('access_token') || hashParams.get('access_token') || 'NONE',
+  error: urlParams.get('error') || hashParams.get('error') || 'NONE',
+  error_description: urlParams.get('error_description') || hashParams.get('error_description') || 'NONE',
+});
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -37,24 +48,65 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     // Storage key for session data
     storageKey: 'dbpowerai-auth-token',
 
-    // DEBUG: Custom storage to log all storage operations
+    // DEBUG: Custom storage to log all storage operations with stack traces
     storage: {
       getItem: (key: string) => {
         const value = localStorage.getItem(key);
-        console.log(`📖 Storage GET [${key}]:`, value ? 'EXISTS' : 'NULL');
+        const timestamp = new Date().toISOString();
+        console.group(`📖 [${timestamp}] Storage GET [${key}]`);
+        console.log('Value:', value ? `EXISTS (${value.length} chars)` : 'NULL');
+        if (value) {
+          try {
+            const parsed = JSON.parse(value);
+            console.log('Parsed keys:', Object.keys(parsed));
+          } catch {
+            console.log('Raw value (not JSON):', value.substring(0, 100));
+          }
+        }
+        console.trace('Called from:');
+        console.groupEnd();
         return value;
       },
       setItem: (key: string, value: string) => {
-        console.log(`💾 Storage SET [${key}]:`, value.substring(0, 50) + '...');
+        const timestamp = new Date().toISOString();
+        console.group(`💾 [${timestamp}] Storage SET [${key}]`);
+        console.log('Value length:', value.length, 'chars');
+        console.log('Value preview:', value.substring(0, 100) + '...');
+        try {
+          const parsed = JSON.parse(value);
+          console.log('Setting keys:', Object.keys(parsed));
+          if (parsed.access_token) {
+            console.log('✅ Contains access_token:', parsed.access_token.substring(0, 20) + '...');
+          }
+          if (parsed.refresh_token) {
+            console.log('✅ Contains refresh_token');
+          }
+        } catch {
+          console.log('Raw value (not JSON)');
+        }
+        console.trace('Called from:');
+        console.groupEnd();
         localStorage.setItem(key, value);
       },
       removeItem: (key: string) => {
-        console.log(`🗑️ Storage REMOVE [${key}]`);
+        const timestamp = new Date().toISOString();
+        console.group(`🗑️ [${timestamp}] Storage REMOVE [${key}]`);
+        console.trace('Called from:');
+        console.groupEnd();
         localStorage.removeItem(key);
       },
     },
   },
 });
+
+// DIAGNOSTIC: Wait and check if Supabase detected session in URL
+setTimeout(() => {
+  console.log('⏰ [100ms after client creation] Post-init check:');
+  console.log('  - Current URL:', window.location.href);
+  console.log('  - Hash:', window.location.hash || 'EMPTY');
+  console.log('  - Search:', window.location.search || 'EMPTY');
+  console.log('  - LocalStorage dbpowerai-auth-token:', localStorage.getItem('dbpowerai-auth-token') ? 'EXISTS' : 'NULL');
+}, 100);
 
 // DEBUG: Test localStorage immediately
 try {
