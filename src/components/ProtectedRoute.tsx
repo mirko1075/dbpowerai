@@ -11,14 +11,12 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Once loading is done and there's no user, redirect to login
     if (!isLoading && !user) {
       console.log('🔒 ProtectedRoute: No user found, redirecting to login');
       navigate('/login');
     }
   }, [user, isLoading, navigate]);
 
-  // Show loading spinner while checking auth
   if (isLoading) {
     return (
       <div style={{
@@ -50,12 +48,10 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
-  // If not loading and no user, return null (redirect happens in useEffect)
   if (!user) {
     return null;
   }
 
-  // User is authenticated, render the protected content
   console.log('✅ ProtectedRoute: User authenticated, rendering protected content');
   return <>{children}</>;
 }

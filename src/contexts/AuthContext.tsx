@@ -19,12 +19,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Initialize auth state
     const initializeAuth = async () => {
+      console.log('🚀 AuthContext: Starting initialization...');
+      console.log('📍 Current URL:', window.location.href);
+      console.log('🔗 URL Hash:', window.location.hash);
+      console.log('🔍 URL Search:', window.location.search);
+
       try {
         // CRITICAL: Add 200ms delay to allow Supabase to parse URL session after OAuth redirect
         // This prevents the race condition where getSession() is called before URL tokens are extracted
+        console.log('⏱️ AuthContext: Waiting 200ms for URL session detection...');
         await new Promise(resolve => setTimeout(resolve, 200));
 
+        console.log('🔍 AuthContext: Calling getSession()...');
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+
+        console.log('📊 AuthContext: getSession() result:', {
+          hasSession: !!initialSession,
+          hasError: !!error,
+          user: initialSession?.user?.email || 'none',
+          expiresAt: initialSession?.expires_at,
+        });
 
         if (error) {
           console.error('❌ Auth initialization error:', error);
@@ -36,6 +50,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(initialSession.user);
         } else {
           console.log('ℹ️ AuthContext: No initial session found');
+          console.log('🔎 Checking localStorage manually...');
+          const storedSession = localStorage.getItem('dbpowerai-auth-token');
+          console.log('💾 LocalStorage value:', storedSession ? 'EXISTS' : 'NULL');
           setSession(null);
           setUser(null);
         }
@@ -44,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(null);
         setUser(null);
       } finally {
+        console.log('✅ AuthContext: Initialization complete, setting isLoading = false');
         setIsLoading(false);
       }
     };
@@ -51,9 +69,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initializeAuth();
 
     // Listen for auth state changes
+    console.log('👂 AuthContext: Setting up onAuthStateChange listener...');
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        console.log('🔄 AuthContext: Auth state changed:', event, currentSession?.user?.email || 'no user');
+        console.log('🔄 AuthContext: Auth state changed:', {
+          event,
+          user: currentSession?.user?.email || 'no user',
+          hasSession: !!currentSession,
+          timestamp: new Date().toISOString(),
+        });
 
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
@@ -64,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     );
+    console.log('✅ AuthContext: onAuthStateChange listener registered');
 
     // Cleanup subscription on unmount
     return () => {
@@ -107,6 +132,6 @@ export function useAuth() {
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
-
+  console.log('context :>> ', context);
   return context;
 }

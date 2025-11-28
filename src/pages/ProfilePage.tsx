@@ -35,7 +35,9 @@ function ProfilePage() {
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser();
 
+      // ProtectedRoute already ensures user is authenticated
       if (!authUser) {
+        console.log('❌ ProfilePage: No user found (should not happen due to ProtectedRoute)');
         navigate('/login');
         return;
       }

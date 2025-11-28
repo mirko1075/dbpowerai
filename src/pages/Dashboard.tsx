@@ -182,7 +182,9 @@ function Dashboard() {
 
       const { data: { session } } = await supabase.auth.getSession();
 
+      // ProtectedRoute already ensures user is authenticated
       if (!session) {
+        console.log('❌ Dashboard: No session found (should not happen due to ProtectedRoute)');
         navigate('/login');
         return;
       }
