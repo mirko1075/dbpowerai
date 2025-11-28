@@ -198,9 +198,9 @@ function ProfilePage() {
         return;
       }
 
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-account`;
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-profile`;
 
-      console.log('[ProfilePage] Calling delete-account function for user:', user.id);
+      console.log('[ProfilePage] Calling delete-profile function for user:', user.id);
 
       const response = await fetch(apiUrl, {
         method: 'POST',
