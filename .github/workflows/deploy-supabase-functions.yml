@@ -1,16 +1,22 @@
 name: Deploy Supabase Functions
 
 on:
-  pull_request:
-    types: [closed]
+  # Parte su TUTTI i push, ma solo se toccano funzioni
+  push:
     branches:
       - main
-  push:
+      - "**"
+    paths:
+      - "supabase/functions/**"
+
+  # Parte quando apri una PR verso main
+  pull_request:
     branches:
       - main
     paths:
       - "supabase/functions/**"
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+
+  workflow_dispatch:
 
 jobs:
   deploy:

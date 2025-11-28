@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// Prompt template for validator
 const VALIDATOR_PROMPT = `
 You are DBPowerAI-Validator.
 
