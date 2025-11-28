@@ -188,14 +188,24 @@ function ProfilePage() {
     setActionLoading('delete');
 
     try {
+      // Verify we have a valid session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        console.error('Session error:', sessionError);
+        setErrorMessage('Session expired. Please log in again.');
+        setActionLoading(null);
+        return;
+      }
+
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-account`;
 
-      const { data: { session } } = await supabase.auth.getSession();
+      console.log('[ProfilePage] Calling delete-account function for user:', user.id);
 
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session?.access_token}`,
+          'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ user_id: user.id })
@@ -203,19 +213,30 @@ function ProfilePage() {
 
       const result = await response.json();
 
+      console.log('[ProfilePage] Delete account response:', {
+        status: response.status,
+        ok: response.ok,
+        result
+      });
+
       if (!response.ok || !result.success) {
-        console.error('Delete account error:', result.error);
-        setErrorMessage('Something went wrong while deleting your account. Please try again.');
+        console.error('[ProfilePage] Delete account failed:', result.error || result.details);
+
+        // Show specific error message from the server
+        const errorMsg = result.error || result.details || 'Something went wrong while deleting your account.';
+        setErrorMessage(errorMsg);
         setActionLoading(null);
         return;
       }
 
-      await supabase.auth.signOut();
+      console.log('[ProfilePage] Account deleted successfully, signing out...');
 
+      // Account deleted successfully, sign out and redirect
+      await supabase.auth.signOut();
       navigate('/');
     } catch (err) {
-      console.error('Unexpected error deleting account:', err);
-      setErrorMessage('Unexpected error. Please try again.');
+      console.error('[ProfilePage] Unexpected error deleting account:', err);
+      setErrorMessage(err instanceof Error ? err.message : 'Unexpected error. Please try again.');
       setActionLoading(null);
     }
   };
