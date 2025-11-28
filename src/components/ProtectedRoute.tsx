@@ -12,7 +12,6 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   useEffect(() => {
     if (!isLoading && !user) {
-      console.log('🔒 ProtectedRoute: No user found, redirecting to login');
       navigate('/login');
     }
   }, [user, isLoading, navigate]);
@@ -52,7 +51,6 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
     return null;
   }
 
-  console.log('✅ ProtectedRoute: User authenticated, rendering protected content');
   return <>{children}</>;
 }
 

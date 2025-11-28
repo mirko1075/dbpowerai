@@ -15,9 +15,6 @@ function Navbar() {
   // Use centralized auth context instead of local state
   const { user, signOut } = useAuth();
 
-  // DEBUG: Log user state
-  console.log('🔵 Navbar render - user:', user?.email || 'NO USER');
-
   const navigate = useNavigate();
   const location = useLocation();
 

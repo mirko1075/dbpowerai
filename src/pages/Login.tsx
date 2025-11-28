@@ -13,62 +13,26 @@ function Login() {
   const navigate = useNavigate();
 
   const handleGoogleSignIn = async () => {
-    console.group('🔐 GOOGLE OAUTH SIGN IN - DIAGNOSTIC');
-    console.log('⏰ Timestamp:', new Date().toISOString());
-    console.log('📍 Current location:', {
-      href: window.location.href,
-      origin: window.location.origin,
-      pathname: window.location.pathname,
-      hash: window.location.hash,
-      search: window.location.search,
-    });
-    console.log('🎯 Redirect target:', `${window.location.origin}/dashboard`);
-    console.log('💾 LocalStorage before OAuth:', {
-      authToken: localStorage.getItem('dbpowerai-auth-token') ? 'EXISTS' : 'NULL',
-      allKeys: Object.keys(localStorage),
-    });
-
     setGoogleLoading(true);
     setMessage(null);
 
     try {
-      console.log('🚀 Calling supabase.auth.signInWithOAuth...');
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/dashboard`,
         },
       });
 
-      console.log('📊 OAuth response received:', {
-        hasData: !!data,
-        hasError: !!error,
-        data: data,
-        error: error,
-      });
-
       if (error) {
         console.error('❌ OAuth error:', error);
-        console.log('Error details:', {
-          message: error.message,
-          status: error.status,
-          name: error.name,
-        });
         setMessage({ type: 'error', text: error.message });
         setGoogleLoading(false);
-      } else {
-        console.log('✅ OAuth initiated successfully');
-        console.log('🔄 Browser should redirect to Google OAuth...');
-        // Note: Se questo log appare, significa che il redirect NON è partito
-        console.log('⚠️ If you see this, redirect did not happen!');
       }
     } catch (err: any) {
       console.error('❌ Unexpected OAuth error:', err);
-      console.log('Error stack:', err.stack);
       setMessage({ type: 'error', text: 'An unexpected error occurred' });
       setGoogleLoading(false);
-    } finally {
-      console.groupEnd();
     }
   };
 
