@@ -161,16 +161,21 @@ Deno.serve(async (req: Request) => {
 
     console.log('[delete-account] Starting deletion process for user:', user_id);
 
-    // Step 8: FIRST - Soft delete the profile using PostgreSQL function (bypasses RLS)
-    console.log('[delete-account] Step 1: Soft deleting user profile via PostgreSQL function...');
-    const { data: softDeleteResult, error: profileError } = await supabaseAdmin
-      .rpc('soft_delete_user_profile', { target_user_id: user_id });
+    // Step 8: FIRST - Soft delete the profile (set deleted_at timestamp)
+    console.log('[delete-account] Step 1: Soft deleting user profile...');
+    const { error: profileError } = await supabaseAdmin
+      .from('user_profiles')
+      .update({
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+      })
+      .eq('id', user_id);
 
     if (profileError) {
-      console.error('[delete-account] Profile soft delete RPC failed:', profileError);
+      console.error('[delete-account] Profile soft delete failed:', profileError);
       return new Response(
         JSON.stringify({
-          error: 'Failed to call soft delete function',
+          error: 'Failed to update profile',
           details: profileError.message
         }),
         {
@@ -183,25 +188,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Check if the PostgreSQL function returned success
-    if (!softDeleteResult || !softDeleteResult.success) {
-      console.error('[delete-account] Soft delete function returned failure:', softDeleteResult);
-      return new Response(
-        JSON.stringify({
-          error: 'Failed to soft delete profile',
-          details: softDeleteResult?.error || 'Unknown error from database function'
-        }),
-        {
-          status: 500,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    console.log('[delete-account] Profile soft deleted successfully via PostgreSQL function');
+    console.log('[delete-account] Profile soft deleted successfully');
 
     // Step 9: SECOND - Hard delete the auth user using admin API
     console.log('[delete-account] Step 2: Deleting auth user...');
