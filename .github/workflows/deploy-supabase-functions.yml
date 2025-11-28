@@ -30,8 +30,4 @@ jobs:
         run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}"
 
       - name: Deploy all functions
-        run: |
-          supabase functions deploy analyze
-          supabase functions deploy analyzeSimulations
-          supabase functions deploy usage
-          supabase functions deploy notify
+        run: supabase functions deploy --all
