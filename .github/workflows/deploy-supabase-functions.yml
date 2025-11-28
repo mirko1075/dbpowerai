@@ -26,9 +26,6 @@ jobs:
           version: latest
 
 
-      - name: Install Supabase CLI
-        run: npm install -g supabase
-
       - name: Login to Supabase
         run: supabase login "${{ secrets.SUPABASE_ACCESS_TOKEN }}"
 
