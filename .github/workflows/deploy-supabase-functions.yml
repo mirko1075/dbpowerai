@@ -35,5 +35,3 @@ jobs:
           supabase functions deploy analyzeSimulations
           supabase functions deploy usage
           supabase functions deploy notify
-
-          
