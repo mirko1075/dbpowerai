@@ -1,6 +1,11 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+
 console.info('delete-account function starting');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
+const ADMIN_KEY = Deno.env.get('DBPOWER_ADMIN_KEY') || '';
 
 const CORS_HEADERS = (origin = '*') => ({
   'Content-Type': 'application/json',
@@ -10,9 +15,8 @@ const CORS_HEADERS = (origin = '*') => ({
 });
 
 Deno.serve(async (req: Request) => {
+  const origin = req.headers.get('origin') || '*';
   try {
-    const origin = req.headers.get('origin') || '*';
-
     if (req.method === 'OPTIONS') {
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: CORS_HEADERS(origin) });
     }
@@ -32,37 +36,54 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Invalid JSON payload' }), { status: 400, headers: CORS_HEADERS(origin) });
     }
 
-    const { user_id } = payload || {};
+    const { user_id, immediate } = payload || {};
     if (!user_id) return new Response(JSON.stringify({ error: 'Missing user_id' }), { status: 400, headers: CORS_HEADERS(origin) });
 
-    const rpcResp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/delete_user_account`, {
-      method: 'POST',
-      headers: {
-        'apikey': SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({ user_id })
-    }).catch((e) => { console.warn('RPC fetch error', e); return null; });
-
-    if (rpcResp && rpcResp.ok) {
-      const data = await rpcResp.json().catch(() => null);
-      return new Response(JSON.stringify({ ok: true, detail: 'deleted via rpc', data }), { status: 200, headers: CORS_HEADERS(origin) });
+    // Validate caller via Authorization header
+    const authHeader = req.headers.get('Authorization') || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: CORS_HEADERS(origin) });
     }
 
-    console.warn('RPC delete_user_account failed or not found, falling back to soft delete. Status:', rpcResp?.status);
+    const token = authHeader.replace('Bearer ', '');
 
-    const DB_URL = Deno.env.get('SUPABASE_DB_URL') || '';
-    if (DB_URL) {
-      return new Response(JSON.stringify({ error: 'RPC not available; please run fallback SQL via SUPABASE_DB_URL or create delete_user_account rpc' }), { status: 500, headers: CORS_HEADERS(origin) });
+    // Create a supabase client using anon key but forwarding the Authorization header to validate the user
+    const supabase = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: authHeader } } });
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr || !user) {
+      console.error('Unauthorized user', userErr);
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: CORS_HEADERS(origin) });
     }
 
-    return new Response(JSON.stringify({ error: 'Delete failed: RPC and fallbacks failed' }), { status: 500, headers: CORS_HEADERS(origin) });
+    const isAdminRequest = token === ADMIN_KEY;
+    // Only allow if caller is the same user or admin key provided
+    if (!isAdminRequest && user.id !== user_id) {
+      return new Response(JSON.stringify({ error: 'Forbidden: can only delete your own account' }), { status: 403, headers: CORS_HEADERS(origin) });
+    }
+
+    // Call the request_user_deletion RPC using the service role key for enqueueing
+    const serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    // If immediate flag is set and caller is admin, call perform_hard_delete directly (caution)
+    if (immediate && isAdminRequest) {
+      const { data, error } = await serviceClient.rpc('perform_hard_delete', { p_user_id: user_id, p_performed_by: user.id });
+      if (error) {
+        console.error('perform_hard_delete error', error);
+        return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500, headers: CORS_HEADERS(origin) });
+      }
+      return new Response(JSON.stringify({ ok: true, detail: 'hard_deleted', data }), { status: 200, headers: CORS_HEADERS(origin) });
+    }
+
+    const { data: rpcData, error: rpcError } = await serviceClient.rpc('request_user_deletion', { p_user_id: user_id, p_requested_by: user.id });
+    if (rpcError) {
+      console.error('request_user_deletion rpc error', rpcError);
+      return new Response(JSON.stringify({ ok: false, error: rpcError.message }), { status: 500, headers: CORS_HEADERS(origin) });
+    }
+
+    return new Response(JSON.stringify({ ok: true, detail: 'scheduled', data: rpcData }), { status: 200, headers: CORS_HEADERS(origin) });
 
   } catch (err) {
     console.error('Unhandled error in delete-account function', err);
-    const origin = (new URL(req.url)).origin || '*';
-    return new Response(JSON.stringify({ error: 'Internal server error', detail: String(err) }), { status: 500, headers: CORS_HEADERS(origin) });
+    return new Response(JSON.stringify({ error: 'Internal server error', detail: String(err) }), { status: 500, headers: CORS_HEADERS((new URL(req.url)).origin || '*') });
   }
 });
