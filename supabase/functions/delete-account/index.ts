@@ -1,259 +1,88 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+// name: delete-profile
+import { createClient } from "npm:@supabase/supabase-js@2.29.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") || "";
+
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false }
+});
 
 Deno.serve(async (req: Request) => {
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders,
-    });
+  if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+
+  const authHeader = req.headers.get("authorization") || "";
+  const token = authHeader.replace(/^Bearer\s+/i, "");
+  if (!token) return new Response(JSON.stringify({ error: "Missing token" }), { status: 401 });
+
+  // Validate JWT and get user
+  const { data: getUserData, error: getUserErr } = await supabaseAdmin.auth.getUser(token);
+  if (getUserErr || !getUserData?.user) {
+    console.error("auth.getUser error:", getUserErr);
+    return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401 });
+  }
+  const user = getUserData.user;
+
+  // Fetch subscription row if present
+  const { data: sub, error: subErr } = await supabaseAdmin
+    .from("subscriptions")
+    .select("id, stripe_subscription_id, status")
+    .eq("user_id", user.id)
+    .limit(1)
+    .single();
+
+  if (subErr && subErr.details && !subErr.message.includes("No rows")) {
+    console.error("Error fetching subscription:", subErr);
+    return new Response(JSON.stringify({ error: "Failed to fetch subscription" }), { status: 500 });
+  }
+
+  // If Stripe subscription exists and STRIPE_SECRET_KEY provided, cancel it
+  if (sub && sub.stripe_subscription_id && STRIPE_SECRET_KEY) {
+    try {
+      const body = new URLSearchParams();
+      body.set("cancel_at_period_end", "false");
+
+      const stripeRes = await fetch(`https://api.stripe.com/v1/subscriptions/${sub.stripe_subscription_id}`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${STRIPE_SECRET_KEY}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: body.toString()
+      });
+
+      if (!stripeRes.ok) {
+        const errText = await stripeRes.text();
+        console.error("Stripe cancel error:", errText);
+        return new Response(JSON.stringify({ error: "Failed to cancel Stripe subscription" }), { status: 502 });
+      }
+
+      await supabaseAdmin
+        .from("subscriptions")
+        .update({ status: "canceled", canceled_at: new Date().toISOString() })
+        .eq("id", sub.id);
+    } catch (e) {
+      console.error("Stripe API thrown error:", e);
+      return new Response(JSON.stringify({ error: "Stripe API error" }), { status: 502 });
+    }
+  }
+
+  // Call DB RPC to soft-delete/anonymize
+  const reasonPayload = await req.json().catch(() => ({ reason: "user_requested" }));
+  const reason = reasonPayload.reason || "user_requested";
+
+  const { error: rpcErr } = await supabaseAdmin.rpc("soft_delete_user", { p_user_id: user.id, p_reason: reason });
+  if (rpcErr) {
+    console.error("RPC soft_delete_user error:", rpcErr);
+    return new Response(JSON.stringify({ error: "Failed to soft-delete user" }), { status: 500 });
   }
 
   try {
-    // Step 1: Validate HTTP method
-    if (req.method !== 'POST') {
-      console.error('[delete-account] Invalid method:', req.method);
-      return new Response(
-        JSON.stringify({ error: 'Method not allowed' }),
-        {
-          status: 405,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    // Step 2: Validate Authorization header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      console.error('[delete-account] Missing Authorization header');
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized: Missing Authorization header' }),
-        {
-          status: 401,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    // Step 3: Verify environment variables
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
-
-    if (!supabaseUrl || !supabaseServiceKey || !supabaseAnonKey) {
-      console.error('[delete-account] Missing environment variables');
-      return new Response(
-        JSON.stringify({ error: 'Server configuration error' }),
-        {
-          status: 500,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    // Step 4: Verify user authentication using user token
-    const token = authHeader.replace('Bearer ', '');
-    const supabaseClient = createClient(
-      supabaseUrl,
-      supabaseAnonKey,
-      {
-        global: {
-          headers: {
-            Authorization: authHeader,
-          },
-        },
-      }
-    );
-
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
-    if (authError || !user) {
-      console.error('[delete-account] Auth verification failed:', authError?.message);
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized: Invalid token' }),
-        {
-          status: 401,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    console.log('[delete-account] Authenticated user:', user.id);
-
-    // Step 5: Parse and validate request body
-    let requestBody;
-    try {
-      requestBody = await req.json();
-    } catch (parseError) {
-      console.error('[delete-account] JSON parse error:', parseError);
-      return new Response(
-        JSON.stringify({ error: 'Invalid JSON in request body' }),
-        {
-          status: 400,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    const { user_id } = requestBody;
-
-    if (!user_id) {
-      console.error('[delete-account] Missing user_id in request body');
-      return new Response(
-        JSON.stringify({ error: 'Missing user_id in request body' }),
-        {
-          status: 400,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    // Step 6: Verify user can only delete their own account
-    if (user_id !== user.id) {
-      console.error('[delete-account] User ID mismatch. Requested:', user_id, 'Authenticated:', user.id);
-      return new Response(
-        JSON.stringify({ error: 'Forbidden: Can only delete your own account' }),
-        {
-          status: 403,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    // Step 7: Create admin client with SERVICE_ROLE_KEY
-    const supabaseAdmin = createClient(
-      supabaseUrl,
-      supabaseServiceKey,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
-    );
-
-    console.log('[delete-account] Starting deletion process for user:', user_id);
-
-    // Step 8: FIRST - Soft delete the profile (set deleted_at timestamp)
-    console.log('[delete-account] Step 1: Soft deleting user profile...');
-    const { error: profileError } = await supabaseAdmin
-      .from('user_profiles')
-      .update({
-        is_deleted: true,
-        deleted_at: new Date().toISOString(),
-      })
-      .eq('id', user_id);
-
-    if (profileError) {
-      console.error('[delete-account] Profile soft delete failed:', profileError);
-      return new Response(
-        JSON.stringify({
-          error: 'Failed to update profile',
-          details: profileError.message
-        }),
-        {
-          status: 500,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    console.log('[delete-account] Profile soft deleted successfully');
-
-    // Step 9: SECOND - Hard delete the auth user using admin API
-    console.log('[delete-account] Step 2: Deleting auth user...');
-    const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(user_id);
-
-    if (authDeleteError) {
-      console.error('[delete-account] Auth user deletion failed:', authDeleteError);
-
-      // Attempt to rollback profile soft delete
-      console.log('[delete-account] Attempting rollback of profile soft delete...');
-      await supabaseAdmin
-        .from('user_profiles')
-        .update({
-          is_deleted: false,
-          deleted_at: null,
-        })
-        .eq('id', user_id);
-
-      return new Response(
-        JSON.stringify({
-          error: 'Failed to delete user account',
-          details: authDeleteError.message
-        }),
-        {
-          status: 500,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    console.log('[delete-account] Auth user deleted successfully');
-    console.log('[delete-account] Account deletion completed for user:', user_id);
-
-    return new Response(
-      JSON.stringify({ success: true, message: 'Account deleted successfully' }),
-      {
-        status: 200,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-  } catch (err) {
-    console.error('[delete-account] Unexpected error:', err);
-    console.error('[delete-account] Error details:', {
-      message: err instanceof Error ? err.message : 'Unknown error',
-      stack: err instanceof Error ? err.stack : undefined,
-    });
-
-    return new Response(
-      JSON.stringify({
-        error: 'Internal server error',
-        details: err instanceof Error ? err.message : 'Unknown error'
-      }),
-      {
-        status: 500,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    await supabaseAdmin.auth.admin.deleteUser(user.id);
+  } catch (e) {
+    console.warn("admin.deleteUser may have failed or is not applicable:", e);
   }
+
+  return new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "Content-Type": "application/json" } });
 });
