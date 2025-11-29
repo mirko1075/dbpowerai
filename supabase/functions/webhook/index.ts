@@ -78,6 +78,17 @@ async function sendSlackNotification(webhookUrl, sql, analysis) {
     ]
   };
   try {
+    // Debug: request method and a masked headers summary
+    console.log(`[webhook] method=${req.method}`);
+    const hdrSummary = {
+      has_x_api_key: !!req.headers.get("x-api-key") || !!req.headers.get("X-API-Key"),
+      x_api_key_preview: (() => {
+        const v = req.headers.get("x-api-key") || req.headers.get("X-API-Key");
+        if (!v) return null;
+        return `${v.slice(0,4)}...${v.slice(-4)}`;
+      })()
+    };
+    console.log('[webhook] headers=', JSON.stringify(hdrSummary));
     console.log('Sending to SLACK');
     const response = await fetch(webhookUrl, {
       method: "POST",
@@ -95,181 +106,119 @@ async function sendSlackNotification(webhookUrl, sql, analysis) {
     console.error("[SLACK] Error sending notification:", err);
   }
 }
-Deno.serve(async (req)=>{
-  console.log("\n===========================");
-  console.log("[STEP 1] Incoming request");
-  console.log("===========================");
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    console.log("[STEP OPTIONS] CORS preflight");
     return new Response(null, {
       status: 200,
       headers: corsHeaders
     });
   }
+
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  }
+
   try {
-    console.log("[STEP 2] Checking HTTP method:", req.method);
-    if (req.method !== "POST") {
-      console.error("[ERROR] Invalid method:", req.method);
-      return new Response(JSON.stringify({
-        error: "Method not allowed"
-      }), {
-        status: 405,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json"
-        }
-      });
-    }
-    console.log("[STEP 3] Reading environment variables...");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
-    console.log("[ENV] SUPABASE_URL:", supabaseUrl);
-    console.log("[ENV] Service key exists:", !!supabaseServiceKey);
-    console.log("[ENV] OPENAI key exists:", !!openaiApiKey);
+
     if (!supabaseUrl || !supabaseServiceKey) {
-      console.error("[ERROR] Missing env");
-      return new Response(JSON.stringify({
-        error: "Server config error"
-      }), {
+      console.error('[webhook] missing env SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+      return new Response(JSON.stringify({ error: "Server config error" }), {
         status: 500,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json"
-        }
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-    console.log("[STEP 4] Checking X-API-Key...");
-    const apiKeyHeader = req.headers.get("X-API-Key");
-    console.log("[HEADER] X-API-Key:", apiKeyHeader);
-    if (!apiKeyHeader) {
-      console.error("[ERROR] Missing X-API-Key");
-      return new Response(JSON.stringify({
-        error: "Missing X-API-Key"
-      }), {
+    console.log('[webhook] env ok, openai=', !!openaiApiKey);
+
+    // Authentication: only X-API-Key (per-user API key stored in user_profiles.api_key)
+    const userApiKeyHeader = req.headers.get("x-api-key") || req.headers.get("X-API-Key");
+
+    if (!userApiKeyHeader) {
+      console.warn('[webhook] missing X-API-Key header');
+      return new Response(JSON.stringify({ error: "Unauthorized: Missing X-API-Key header" }), {
         status: 401,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json"
-        }
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-    console.log("[STEP 5] Creating Supabase admin client");
+
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
+      auth: { autoRefreshToken: false, persistSession: false }
     });
-    console.log("[STEP 6] Looking up user profile...");
-    const { data: profile, error: profileError } = await supabaseAdmin.from("user_profiles").select("*").eq("api_key", apiKeyHeader).single();
-    console.log("[PROFILE RESULT]", {
-      profile,
-      profileError
-    });
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from("user_profiles")
+      .select("id, slack_webhook_url, slack_enabled, deleted_at")
+      .eq("api_key", userApiKeyHeader)
+      .single();
+    console.log('[webhook] profile lookup err=', !!profileError, 'profile=', profile ? { id: profile.id, deleted_at: profile.deleted_at, slack_enabled: !!profile.slack_enabled } : null);
     if (profileError || !profile) {
-      console.error("[ERROR] Invalid API key");
-      return new Response(JSON.stringify({
-        error: "Invalid API key"
-      }), {
+      console.warn('[webhook] invalid per-user API key');
+      return new Response(JSON.stringify({ error: "Invalid API key" }), {
         status: 403,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json"
-        }
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
+
     if (profile.deleted_at) {
-      console.log("[ERROR] Deleted user");
-      return new Response(JSON.stringify({
-        error: "Account deleted"
-      }), {
+      return new Response(JSON.stringify({ error: "Account deleted" }), {
         status: 403,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json"
-        }
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-    console.log("[STEP 7] User authenticated:", profile.id);
-    console.log("[STEP 8] Reading request body...");
+
     const body = await req.json();
-    console.log("[BODY RECEIVED]", body);
-    if (!body.sql) {
-      console.error("[ERROR] Missing SQL");
-      return new Response(JSON.stringify({
-        error: "'sql' field required"
-      }), {
+    if (!body || !body.sql) {
+      return new Response(JSON.stringify({ error: "'sql' field required" }), {
         status: 400,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json"
-        }
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-    console.log("[STEP 9] Running analysis...");
-    const analysisResult = openaiApiKey ? await analyzeWithValidation(body.sql, openaiApiKey, supabaseAdmin) : fakeAnalysis({
-      query: body.sql
-    });
-    console.log("[ANALYSIS RESULT]", analysisResult);
-    console.log("[STEP 10] Saving query to DB...");
+
+    const analysisResult = openaiApiKey ? await analyzeWithValidation(body.sql, openaiApiKey, supabaseAdmin) : fakeAnalysis({ query: body.sql });
+
     const { error: insertError } = await supabaseAdmin.from("queries").insert({
       user_id: profile.id,
       raw_query: body.sql,
       optimized_query: analysisResult.rewrittenQuery,
       suggested_indexes: analysisResult.suggestedIndex,
       bottleneck: analysisResult.issues.join(", "),
-      db_type: "unknown",
+      db_type: body.db_type || "unknown",
       schema: body.database_schema || body.schema,
       execution_plan: body.explain_plan || body.explain,
       analysis: JSON.stringify(analysisResult),
       notes: analysisResult.semantic_warning || "Analyzed via webhook API",
       origin: "webhook"
     });
-    console.log("[INSERT RESULT]", insertError);
+    console.log('[webhook] insertError=', insertError);
     if (insertError) {
-      console.error("[ERROR] Failed to save:", insertError);
-      return new Response(JSON.stringify({
-        error: "Failed to save",
-        details: insertError
-      }), {
+      console.error('[webhook] failed to insert query:', insertError);
+      return new Response(JSON.stringify({ error: "Failed to save", details: insertError }), {
         status: 500,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json"
-        }
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-    console.log("[STEP 11] Saved successfully!");
+
     if (profile.slack_enabled && profile.slack_webhook_url) {
-      console.log("[STEP 12] Sending Slack...");
-      await sendSlackNotification(profile.slack_webhook_url, body.sql, analysisResult);
-    } else {
-      console.log("[STEP SLACK] Disabled for user");
+      // Fire-and-forget Slack notification (don't block main response on failures)
+      sendSlackNotification(profile.slack_webhook_url, body.sql, analysisResult).catch(() => {
+        // swallow errors - optional logging could be added here
+      });
     }
-    console.log("[STEP 13] Returning response");
-    return new Response(JSON.stringify({
-      success: true,
-      ...analysisResult,
-      message: "Query analyzed & saved"
-    }), {
+
+    return new Response(JSON.stringify({ success: true, ...analysisResult, message: "Query analyzed & saved" }), {
       status: 200,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json"
-      }
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   } catch (error) {
-    console.error("[CRITICAL ERROR]", error);
-    return new Response(JSON.stringify({
-      error: "Internal server error",
-      details: error.message || error.toString()
-    }), {
+    console.error('[webhook] unexpected error', error);
+    return new Response(JSON.stringify({ error: "Internal server error", details: String(error) }), {
       status: 500,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json"
-      }
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   }
 });
