@@ -38,6 +38,27 @@ jobs:
       - name: Link project
         run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}"
 
+      - name: Sync migrations (safe)
+        run: |
+          echo "Attempting to sync remote migrations into the repository (read-only)..."
+          # Try to pull migrations from remote. Allow it to run but don't auto-commit here.
+          supabase db pull || true
+
+          # If the migration directory changed, show a helpful diff and fail the job so the maintainer
+          # pulls the changes locally and commits them. This avoids mysterious 'remote versions not
+          # found in local migrations directory' errors during db push.
+          if [ -n "$(git status --porcelain supabase/migrations)" ]; then
+            echo "\nERROR: Remote migrations differ from local migrations.\n"
+            echo "Run the following locally to sync, inspect and commit the migrations:\n"
+            echo "  supabase db pull"
+            echo "  git add supabase/migrations"
+            echo "  git commit -m \"chore(migrations): sync remote migrations\""
+            echo "  git push origin main\n"
+            echo "---- DIFF (remote vs local migrations) ----"
+            git --no-pager diff -- supabase/migrations || true
+            exit 1
+          fi
+
       - name: Apply DB migrations
         run: |
           echo "Applying Supabase migrations..."
