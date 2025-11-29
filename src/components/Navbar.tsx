@@ -342,7 +342,7 @@ function Navbar() {
               </>
             )}
 
-            {/* LOGGED IN: Show Dashboard, Profile, Logout */}
+            {/* LOGGED IN: Show Dashboard, Analyzer, Admin, Settings, Logout */}
             {user && (
               <>
                 <a href="/dashboard" className={`navbar-link ${isActive('/dashboard') ? 'active' : ''}`}>Dashboard</a>
@@ -350,7 +350,7 @@ function Navbar() {
                 {isAdmin && (
                   <a href="/admin" className={`navbar-link ${isActive('/admin') ? 'active' : ''}`}>Admin</a>
                 )}
-                <a href="/profile" className={`navbar-link ${isActive('/profile') ? 'active' : ''}`}>Profile</a>
+                <a href="/settings" className={`navbar-link ${isActive('/settings') ? 'active' : ''}`}>Settings</a>
                 <button
                   onClick={handleLogout}
                   className="navbar-link"
@@ -425,7 +425,7 @@ function Navbar() {
               {isAdmin && (
                 <a href="/admin" className="navbar-mobile-link">Admin</a>
               )}
-              <a href="/profile" className="navbar-mobile-link">Profile</a>
+              <a href="/settings" className="navbar-mobile-link">Settings</a>
               <button
                 onClick={handleLogout}
                 className="navbar-mobile-link"

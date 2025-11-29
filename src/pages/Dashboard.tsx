@@ -44,6 +44,7 @@ interface Query {
   detected_patterns: string | null;
   schema: string | null;
   execution_plan: string | null;
+  origin: 'form' | 'webhook' | 'deleted_user';
   created_at: string;
 }
 
@@ -82,6 +83,7 @@ function Dashboard() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [dbFilter, setDbFilter] = useState<string>('all');
+  const [originFilter, setOriginFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -162,7 +164,7 @@ function Dashboard() {
 
   useEffect(() => {
     applyFiltersAndSort();
-  }, [queries, searchTerm, dbFilter, dateFilter, sortField, sortDirection]);
+  }, [queries, searchTerm, dbFilter, originFilter, dateFilter, sortField, sortDirection]);
 
   useEffect(() => {
     if (selectedQuery || deleteConfirm || showWelcomeModal) {
@@ -248,6 +250,10 @@ function Dashboard() {
 
     if (dbFilter !== 'all') {
       filtered = filtered.filter(q => q.db_type === dbFilter);
+    }
+
+    if (originFilter !== 'all') {
+      filtered = filtered.filter(q => q.origin === originFilter);
     }
 
     if (dateFilter !== 'all') {
@@ -1702,6 +1708,30 @@ ${query.execution_plan || 'N/A'}
                   {dbEngines.map(db => (
                     <option key={db} value={db}>{db}</option>
                   ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#9ca3af',
+                  marginBottom: '8px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>
+                  Query Origin
+                </label>
+                <select
+                  className="select-field"
+                  value={originFilter}
+                  onChange={(e) => setOriginFilter(e.target.value)}
+                  style={{ width: '100%' }}
+                >
+                  <option value="all">All Sources</option>
+                  <option value="form">Form (Manual)</option>
+                  <option value="webhook">Webhook (API)</option>
                 </select>
               </div>
 
