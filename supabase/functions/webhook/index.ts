@@ -1,21 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { analyzeWithValidation, fakeAnalysis } from '../_shared/analyzer.ts';
-
-type AnalysisShape = {
-  severity?: string | null;
-  score?: number | null;
-  issues?: string[] | null;
-  suggestedIndex?: string | string[] | null;
-  suggestedIndexes?: string | string[] | null;
-  semantic_warning?: string | null;
-  notes?: string | null;
-  note?: string | null;
-  rewrittenQuery?: string | null;
-  optimized_query?: string | null;
-  speedupEstimate?: number | null;
-  validator_status?: string | null;
-};
+import { sendSlackMessage, buildSlackMessage, AnalysisShape } from '../_shared/slack.ts';
 
 // Module load time log
 console.log('[webhook] module initialized');
@@ -23,70 +9,19 @@ console.log('[webhook] module initialized');
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-API-Key, X-Signature"
+  "Access-Control-Allow-Headers": "Content-Type, X-API-Key, X-Signature, Authorization, X-Client-Info, Apikey",
 };
 
-async function sendSlackNotification(webhookUrl: string, sql: string, analysis: AnalysisShape, tableSchema?: string | null, executionPlan?: string | null) {
-  console.log("[STEP SLACK] Sending Slack notification...");
-  const severityColor: Record<string, string> = {
-    low: "#10b981",
-    medium: "#f59e0b",
-    high: "#ef4444",
-    critical: "#dc2626"
-  };
-
-  // Normalize analysis fields with safe defaults
-  const severity = String(analysis?.severity || 'low').toLowerCase();
-  const score = analysis?.score ?? 'N/A';
-  const issuesList = (Array.isArray(analysis?.issues) && analysis!.issues!.length) ? (analysis!.issues!.map((i: unknown) => `• ${String(i)}`).join('\n')) : 'None detected';
-  const suggestedIndexes = analysis?.suggestedIndex || analysis?.suggestedIndexes || null;
-  const notes = analysis?.semantic_warning || analysis?.notes || analysis?.note || 'No notes provided';
-  const optimized = analysis?.rewrittenQuery || analysis?.optimized_query || null;
-  const speedupPct = Math.round(((analysis?.speedupEstimate ?? 0) * 100));
-
-  const blocks: unknown[] = [
-    { type: "header", text: { type: "plain_text", text: "🔍 SQL Query Analyzed via Webhook API" } },
-    { type: "section", fields: [ { type: "mrkdwn", text: `*Severity:* ${severity.toUpperCase()}` }, { type: "mrkdwn", text: `*Score:* ${score}/100` } ] },
-    { type: "section", text: { type: "mrkdwn", text: `*Original Query:*
-\`\`\`${sql}\`\`\`` } },
-    { type: "section", text: { type: "mrkdwn", text: `*Optimized Query:*
-\`\`\`${optimized || 'No rewrite available'}\`\`\`` } },
-    { type: "section", text: { type: "mrkdwn", text: `*Suggested Indexes:*
-${suggestedIndexes ? '```' + String(suggestedIndexes) + '```' : 'None suggested'}` } },
-    { type: "section", text: { type: "mrkdwn", text: `*Bottleneck Analysis:*
-${issuesList}` } },
-    { type: "section", text: { type: "mrkdwn", text: `*Notes:*
-${notes}` } }
-  ];
-
-  if (tableSchema) {
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*Table Schema:*
-\`\`\`${tableSchema}\`\`\`` } });
-  }
-  if (executionPlan) {
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*Execution Plan:*
-\`\`\`${executionPlan}\`\`\`` } });
-  }
-
-  const message = {
-    text: `🔍 New SQL Analysis from Webhook API`,
-    blocks,
-    attachments: [ { color: severityColor[severity] || severityColor['low'], fields: [ { title: "Speedup Estimate", value: `${speedupPct}%`, short: true }, { title: "Validation Status", value: analysis?.validator_status === "valid" ? "✅ Valid" : "⚠️ Needs Review", short: true } ] } ]
-  };
-
-  try {
-    console.log('[SLACK] sending...');
-    const resp = await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(message) });
-    if (!resp.ok) console.error('[SLACK] failed', resp.status);
-  } catch {
-    console.error('[SLACK] Error sending notification');
-  }
-}
+// helper moved to ../_shared/slack.ts
 
 export const config = {
-  runtime: 'edge',
-  allowMethods: ['POST','OPTIONS'],
-  verifyJWT: false
+  runtime: "edge",
+  verifyJWT: false,
+  cors: {
+    allowMethods: ["POST", "OPTIONS"],
+    allowHeaders: ["content-type", "x-api-key", "authorization", "x-client-info", " X-API-Key", "X-Signature"],
+    allowOrigins: ["*"]
+  }
 };
 
 Deno.serve(async (req: Request) => {
@@ -94,7 +29,7 @@ Deno.serve(async (req: Request) => {
   try {
     const preview = req.headers.get('x-api-key') || req.headers.get('X-API-Key') || null;
     console.log('[webhook] invocation start, x-api-key-preview=', preview ? `${preview.slice(0,4)}...${preview.slice(-4)}` : 'none');
-  } catch (e) {
+  } catch {
     console.log('[webhook] invocation start (failed to preview header)');
   }
 
@@ -165,9 +100,16 @@ Deno.serve(async (req: Request) => {
     await writeDebug('info','insert result', { insertError: insertError ? String(insertError) : null });
     if (insertError) { await writeDebug('error','failed to insert query', { insertError: String(insertError) }); return new Response(JSON.stringify({ error: 'Failed to save', details: insertError }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }); }
 
-    if (profile.slack_enabled && profile.slack_webhook_url) { 
+    if (profile.slack_enabled && profile.slack_webhook_url) {
+      try {
+        // Build message and persist payload to debug table so we can inspect exactly what will be sent
+        const slackPayload = buildSlackMessage(bodyRec, analysisResult as AnalysisShape);
+        await supabaseAdmin.from('function_debug_logs').insert({ function_name: 'webhook', level: 'debug', message: 'slack_payload', meta: slackPayload });
+      } catch (e) {
+        console.warn('[webhook] failed to persist slack payload', String(e));
+      }
       // Fire-and-forget Slack notification (don't block main response on failures)
-      sendSlackNotification(profile.slack_webhook_url, sql, analysisResult, schemaVal, executionPlanBody).catch(()=>{}); 
+      sendSlackMessage(profile.slack_webhook_url, bodyRec, analysisResult as AnalysisShape).catch(()=>{});
     }
 
     return new Response(JSON.stringify({ success: true, ...analysisResult, message: 'Query analyzed & saved' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
