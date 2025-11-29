@@ -495,6 +495,7 @@ function SettingsPage() {
           gap: 8px;
           border-bottom: 2px solid #1f2327;
           overflow-x: auto;
+          overflow-y: hidden;
         }
 
         .tab {
