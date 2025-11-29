@@ -39,7 +39,6 @@ jobs:
         run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}"
 
       - name: Sync migrations (safe)
-        if: false
         run: |
           echo "Attempting to sync remote migrations into the repository (read-only)..."
           # Try to pull migrations from remote. Allow it to run but don't auto-commit here.
@@ -61,7 +60,6 @@ jobs:
           fi
 
       - name: Apply DB migrations
-        if: false
         run: |
           echo "Applying Supabase migrations..."
           supabase db push
@@ -69,6 +67,19 @@ jobs:
           # Service role key is required to apply migrations safely
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      - name: Deploy all functions
-        run: supabase functions deploy
+      - name: Deploy functions (webhook no-verify-jwt)
+        run: |
+          echo "Deploying Supabase functions. 'webhook' will use --no-verify-jwt"
+          for fn in supabase/functions/*; do
+            if [ -d "$fn" ]; then
+              name=$(basename "$fn")
+              if [ "$name" = "webhook" ]; then
+                echo "-> Deploying function: $name (no-verify-jwt)"
+                supabase functions deploy "$name" --no-verify-jwt
+              else
+                echo "-> Deploying function: $name"
+                supabase functions deploy "$name"
+              fi
+            fi
+          done
 

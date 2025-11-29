@@ -54,13 +54,13 @@ BEGIN
     WHERE p.polname = 'Users can view their own customer data'
       AND c.relname = 'stripe_customers'
   ) THEN
-    EXECUTE $$
+    EXECUTE $pol$
       CREATE POLICY "Users can view their own customer data"
         ON stripe_customers
         FOR SELECT
         TO authenticated
         USING (user_id = auth.uid() AND deleted_at IS NULL)
-    $$;
+    $pol$;
   END IF;
 END$$;
 
