@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { analyzeWithValidation, fakeAnalysis } from "../_shared/analyzer.ts";
 import { sendSlackMessage, buildSlackMessage, AnalysisShape } from "../_shared/slack.ts";
 
-// Module load time log
+// Module load time log 
 console.log("[webhook] module initialized");
 
 const corsHeaders = {
@@ -21,7 +21,7 @@ export const config = {
     allowOrigins: ["*"]
   }
 };
-
+console.log('config :>> ', config);
 Deno.serve(async (req: Request) => {
   try {
     const preview =

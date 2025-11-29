@@ -44,11 +44,25 @@ CREATE TABLE IF NOT EXISTS stripe_customers (
 
 ALTER TABLE stripe_customers ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can view their own customer data"
-    ON stripe_customers
-    FOR SELECT
-    TO authenticated
-    USING (user_id = auth.uid() AND deleted_at IS NULL);
+/* Ensure the policy exists but avoid failures if already present. */
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_policy p
+    JOIN pg_catalog.pg_class c ON p.polrelid = c.oid
+    WHERE p.polname = 'Users can view their own customer data'
+      AND c.relname = 'stripe_customers'
+  ) THEN
+    EXECUTE $$
+      CREATE POLICY "Users can view their own customer data"
+        ON stripe_customers
+        FOR SELECT
+        TO authenticated
+        USING (user_id = auth.uid() AND deleted_at IS NULL)
+    $$;
+  END IF;
+END$$;
 
 CREATE TYPE stripe_subscription_status AS ENUM (
     'not_started',
