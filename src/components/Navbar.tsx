@@ -332,11 +332,11 @@ function Navbar() {
             </div>
 
             <a href="/pricing" className={`navbar-link ${isActive('/pricing') ? 'active' : ''}`}>Pricing</a>
-            <a href="/contact" className={`navbar-link ${isActive('/contact') ? 'active' : ''}`}>Contact</a>
 
             {/* LOGGED OUT: Show Sign in / Sign up */}
             {!user && (
               <>
+              <a href="/contact" className={`navbar-link ${isActive('/contact') ? 'active' : ''}`}>Contact</a>
                 <a href="/login" className={`navbar-link ${isActive('/login') ? 'active' : ''}`}>Sign in</a>
                 <a href="/signup" className="navbar-link" style={{ color: '#00ffa3' }}>Sign up</a>
               </>
@@ -345,12 +345,14 @@ function Navbar() {
             {/* LOGGED IN: Show Dashboard, Analyzer, Admin, Settings, Logout */}
             {user && (
               <>
-                <a href="/dashboard" className={`navbar-link ${isActive('/dashboard') ? 'active' : ''}`}>Dashboard</a>
                 <a href="/app" className={`navbar-link ${isActive('/app') ? 'active' : ''}`}>Analyzer</a>
+                <a href="/dashboard" className={`navbar-link ${isActive('/dashboard') ? 'active' : ''}`}>Dashboard</a>
                 {isAdmin && (
                   <a href="/admin" className={`navbar-link ${isActive('/admin') ? 'active' : ''}`}>Admin</a>
                 )}
                 <a href="/settings" className={`navbar-link ${isActive('/settings') ? 'active' : ''}`}>Settings</a>
+                              <a href="/contact" className={`navbar-link ${isActive('/contact') ? 'active' : ''}`}>Contact</a>
+
                 <button
                   onClick={handleLogout}
                   className="navbar-link"
@@ -407,7 +409,6 @@ function Navbar() {
           </div>
 
           <a href="/pricing" className="navbar-mobile-link">Pricing</a>
-          <a href="/contact" className="navbar-mobile-link">Contact</a>
 
           {/* MOBILE - LOGGED OUT */}
           {!user && (
@@ -426,6 +427,7 @@ function Navbar() {
                 <a href="/admin" className="navbar-mobile-link">Admin</a>
               )}
               <a href="/settings" className="navbar-mobile-link">Settings</a>
+              <a href="/contact" className="navbar-mobile-link">Contact</a>
               <button
                 onClick={handleLogout}
                 className="navbar-mobile-link"
