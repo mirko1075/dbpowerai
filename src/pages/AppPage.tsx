@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import UsageSummary from '../components/UsageSummary';
-import { Copy, Check, AlertTriangle, Download, Mail } from 'lucide-react';
+import { Copy, Check, Download, Mail } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logEvent } from '../lib/logEvent';
 import { trackEvent } from '../lib/tracking';
@@ -31,6 +31,8 @@ function AppPage() {
   const [result, setResult] = useState<OptimizationResult | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [errors, setErrors] = useState({ database: '', sqlQuery: '', api: '' });
+
+  type NormalizedResponse = Partial<OptimizationResult> & Record<string, unknown>;
 
   useEffect(() => {
     logEvent('open_analyzer');
@@ -95,10 +97,9 @@ function AppPage() {
           executionPlan: executionPlan.trim() || undefined,
         }),
       });
-
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
+      if (!response.ok) {
         logEvent('analysis_error', { error: data.error || 'Unknown error' });
         setErrors({ database: '', sqlQuery: '', api: data.error || 'Unable to optimize query. Please check your SQL and try again.' });
         setLoading(false);
@@ -106,15 +107,33 @@ function AppPage() {
       }
 
       logEvent('analysis_success');
-      setResult(data.data);
+      // Normalize response: some endpoints return { data: {...} } while others return the object directly
+      const payload = data.data ?? data;
+
+      // Map alternative field names into the shape the app expects
+      const normalized = {
+        ...payload,
+        // recommendedIndexes can be named recommendedIndexes, suggestedIndex or suggested_indexes
+        recommendedIndexes:
+          payload.recommendedIndexes ?? payload.suggestedIndex ?? payload.suggested_indexes ?? null,
+        // detectedPatterns can be named detectedPatterns or issues
+        detectedPatterns: payload.detectedPatterns ?? payload.issues ?? [],
+        // warnings may be provided as warnings or issues (fallback to array)
+        warnings: payload.warnings ?? (Array.isArray(payload.issues) ? payload.issues : []),
+        // speedup estimate may come under different names
+        speedupEstimate:
+          payload.speedupEstimate ?? payload.estimated_speedup ?? payload.speedup_estimate ?? payload.speedupEstimate ?? null,
+  } as NormalizedResponse;
+
+  setResult(normalized as OptimizationResult);
 
       trackAnalytics('query_analyzed', {
         query_length: sqlQuery.length,
-        has_errors: !!data.data.warnings?.length,
-        index_suggestions: data.data.recommendedIndexes ? 1 : 0,
-        rewrite_available: !!data.data.rewrittenQuery,
-        severity: data.data.detectedPatterns?.[0]?.severity || 'low',
-        estimated_speedup: data.data.detectedPatterns?.length || 0
+        has_errors: !!(normalized.warnings && normalized.warnings.length),
+        index_suggestions: normalized.recommendedIndexes ? 1 : 0,
+        rewrite_available: !!normalized.rewrittenQuery,
+        severity: normalized.detectedPatterns?.[0]?.severity || normalized.severity || 'low',
+        estimated_speedup: normalized.speedupEstimate ?? (normalized.detectedPatterns?.length || 0)
       });
 
       setLoading(false);
@@ -170,6 +189,7 @@ function AppPage() {
     });
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case 'high':
@@ -502,6 +522,41 @@ ${notes}
 
         .action-button:active {
           transform: translateY(0);
+        }
+
+        .section-label {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 12px;
+          font-size: 14px;
+          font-weight: 700;
+          color: #00ffa3;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+        }
+
+        .code-block {
+          background: #14161a;
+          border: 1px solid #1f2327;
+          border-radius: 8px;
+          padding: 20px;
+          font-family: 'Fira Code', 'Courier New', monospace;
+          font-size: 14px;
+          line-height: 1.6;
+          color: #e5e5e5;
+          white-space: pre-wrap;
+          word-wrap: break-word;
+        }
+
+        .modal-info-block {
+          background: #14161a;
+          border: 1px solid #1f2327;
+          border-radius: 8px;
+          padding: 20px;
+          font-size: 15px;
+          line-height: 1.8;
+          color: #9ca3af;
         }
 
         .toggle-link {
@@ -853,15 +908,40 @@ ${notes}
                 </span>
               </div>
 
-              {result.warnings && result.warnings.length > 0 && (
-                <div className="result-section">
-                  <div className="result-label">
-                    <span>⚠️ Warnings</span>
+              {/* Original Query */}
+              <div style={{ marginBottom: '32px' }}>
+                <div className="section-label">
+                  <span>Original Query</span>
+                  <button
+                    className={`copy-button ${copiedField === 'raw_query' ? 'copied' : ''}`}
+                    onClick={() => copyText(sqlQuery, 'raw_query')}
+                  >
+                    {copiedField === 'raw_query' ? (
+                      <>
+                        <Check size={14} />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} />
+                        Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="code-block">{sqlQuery}</div>
+              </div>
+
+              {/* Optimized Query */}
+              {result.rewrittenQuery && (
+                <div style={{ marginBottom: '32px' }}>
+                  <div className="section-label">
+                    <span>Optimized Query</span>
                     <button
-                      className={`copy-button ${copiedField === 'warnings' ? 'copied' : ''}`}
-                      onClick={() => copyText(warnings, 'warnings')}
+                      className={`copy-button ${copiedField === 'optimized_query' ? 'copied' : ''}`}
+                      onClick={() => copyText(result.rewrittenQuery, 'optimized_query')}
                     >
-                      {copiedField === 'warnings' ? (
+                      {copiedField === 'optimized_query' ? (
                         <>
                           <Check size={14} />
                           Copied
@@ -874,26 +954,48 @@ ${notes}
                       )}
                     </button>
                   </div>
-                  <div>
-                    {result.warnings.map((warning, index) => (
-                      <div key={index} className="warning-item">
-                        <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
-                        <span>{warning}</span>
-                      </div>
-                    ))}
+                  <div className="code-block" style={{ color: '#00ffa3' }}>
+                    {result.rewrittenQuery}
                   </div>
                 </div>
               )}
 
+              {/* Suggested Indexes */}
+              {result.recommendedIndexes && (
+                <div style={{ marginBottom: '32px' }}>
+                  <div className="section-label">
+                    <span>Suggested Indexes</span>
+                    <button
+                      className={`copy-button ${copiedField === 'suggested_indexes' ? 'copied' : ''}`}
+                      onClick={() => copyText(result.recommendedIndexes, 'suggested_indexes')}
+                    >
+                      {copiedField === 'suggested_indexes' ? (
+                        <>
+                          <Check size={14} />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={14} />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <div className="code-block">{result.recommendedIndexes}</div>
+                </div>
+              )}
+
+              {/* Bottleneck Analysis */}
               {result.detectedPatterns && result.detectedPatterns.length > 0 && (
-                <div className="result-section">
-                  <div className="result-label">
-                    <span>🔍 Detected Patterns</span>
+                <div style={{ marginBottom: '32px' }}>
+                  <div className="section-label">
+                    <span>Bottleneck Analysis</span>
                     <button
-                      className={`copy-button ${copiedField === 'patterns' ? 'copied' : ''}`}
-                      onClick={() => copyText(patterns, 'patterns')}
+                      className={`copy-button ${copiedField === 'bottleneck' ? 'copied' : ''}`}
+                      onClick={() => copyText((result.detectedPatterns || []).map(p => p.message).join('; '), 'bottleneck')}
                     >
-                      {copiedField === 'patterns' ? (
+                      {copiedField === 'bottleneck' ? (
                         <>
                           <Check size={14} />
                           Copied
@@ -906,125 +1008,95 @@ ${notes}
                       )}
                     </button>
                   </div>
-                  <div>
-                    {result.detectedPatterns.map((pattern, index) => (
-                      <div key={index} className="pattern-item" style={{
-                        borderLeftWidth: '3px',
-                        borderLeftColor: getSeverityColor(pattern.severity)
-                      }}>
-                        <div style={{ flex: 1 }}>
-                          <div className="pattern-type" style={{
-                            color: getSeverityColor(pattern.severity)
-                          }}>
-                            {pattern.type.replace(/_/g, ' ')} ({pattern.severity})
-                          </div>
-                          <div className="pattern-message">{pattern.message}</div>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="modal-info-block">
+                    {(result.detectedPatterns || []).map(p => p.message).join('; ')}
                   </div>
                 </div>
               )}
 
-              <div className="result-section">
-                <div className="result-label">
-                  <span>Analysis</span>
-                  <button
-                    className={`copy-button ${copiedField === 'analysis' ? 'copied' : ''}`}
-                    onClick={() => copyText(analysis, 'analysis')}
-                  >
-                    {copiedField === 'analysis' ? (
-                      <>
-                        <Check size={14} />
-                        Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={14} />
-                        Copy
-                      </>
-                    )}
-                  </button>
+              {/* Notes */}
+              {result.notes && (
+                <div style={{ marginBottom: '32px' }}>
+                  <div className="section-label">
+                    <span>Notes</span>
+                    <button
+                      className={`copy-button ${copiedField === 'notes' ? 'copied' : ''}`}
+                      onClick={() => copyText(result.notes, 'notes')}
+                    >
+                      {copiedField === 'notes' ? (
+                        <>
+                          <Check size={14} />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={14} />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <div className="modal-info-block">
+                    {result.notes}
+                  </div>
                 </div>
-                <div className="result-text">
-                  {result.analysis ?? 'No analysis available'}
-                </div>
-              </div>
+              )}
 
-              <div className="result-section">
-                <div className="result-label">
-                  <span>Rewritten Query</span>
-                  <button
-                    className={`copy-button ${copiedField === 'query' ? 'copied' : ''}`}
-                    onClick={() => copyText(rewritten, 'query')}
-                  >
-                    {copiedField === 'query' ? (
-                      <>
-                        <Check size={14} />
-                        Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={14} />
-                        Copy
-                      </>
-                    )}
-                  </button>
+              {/* Table Schema */}
+              {schema && (
+                <div style={{ marginBottom: '32px' }}>
+                  <div className="section-label">
+                    <span>Table Schema</span>
+                    <button
+                      className={`copy-button ${copiedField === 'schema' ? 'copied' : ''}`}
+                      onClick={() => copyText(schema, 'schema')}
+                    >
+                      {copiedField === 'schema' ? (
+                        <>
+                          <Check size={14} />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={14} />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <div className="code-block" style={{ fontSize: '13px', color: '#9ca3af' }}>
+                    {schema}
+                  </div>
                 </div>
-                <div className="result-code">
-                  {result.rewrittenQuery ?? 'No rewritten query available'}
-                </div>
-              </div>
+              )}
 
-              <div className="result-section">
-                <div className="result-label">
-                  <span>Recommended Indexes</span>
-                  <button
-                    className={`copy-button ${copiedField === 'indexes' ? 'copied' : ''}`}
-                    onClick={() => copyText(indexes, 'indexes')}
-                  >
-                    {copiedField === 'indexes' ? (
-                      <>
-                        <Check size={14} />
-                        Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={14} />
-                        Copy
-                      </>
-                    )}
-                  </button>
+              {/* Execution Plan */}
+              {executionPlan && (
+                <div style={{ marginBottom: '32px' }}>
+                  <div className="section-label">
+                    <span>Execution Plan</span>
+                    <button
+                      className={`copy-button ${copiedField === 'execution_plan' ? 'copied' : ''}`}
+                      onClick={() => copyText(executionPlan, 'execution_plan')}
+                    >
+                      {copiedField === 'execution_plan' ? (
+                        <>
+                          <Check size={14} />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={14} />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <div className="code-block" style={{ fontSize: '13px', color: '#9ca3af' }}>
+                    {executionPlan}
+                  </div>
                 </div>
-                <div className="result-code">
-                  {result.recommendedIndexes ?? 'No index recommendations available'}
-                </div>
-              </div>
-
-              <div className="result-section">
-                <div className="result-label">
-                  <span>Notes</span>
-                  <button
-                    className={`copy-button ${copiedField === 'notes' ? 'copied' : ''}`}
-                    onClick={() => copyText(notes, 'notes')}
-                  >
-                    {copiedField === 'notes' ? (
-                      <>
-                        <Check size={14} />
-                        Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={14} />
-                        Copy
-                      </>
-                    )}
-                  </button>
-                </div>
-                <div className="result-text">
-                  {result.notes ?? 'No additional notes'}
-                </div>
-              </div>
+              )}
 
               <div className="action-buttons-container">
                 <button

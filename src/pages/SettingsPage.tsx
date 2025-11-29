@@ -51,6 +51,7 @@ function SettingsPage() {
   // API tab state
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [showFullApiKey, setShowFullApiKey] = useState(false);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   // Security tab state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -320,6 +321,12 @@ function SettingsPage() {
     navigator.clipboard.writeText(apiKey);
     setSuccessMessage('API key copied to clipboard');
     setTimeout(() => setSuccessMessage(''), 2000);
+  };
+
+  const handleCopyCode = (code: string, id: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(id);
+    setTimeout(() => setCopiedCode(null), 2000);
   };
 
   const handleRegenerateApiKey = async () => {
@@ -1053,9 +1060,9 @@ function SettingsPage() {
           {/* API ACCESS TAB */}
           {activeTab === 'api' && (
             <div className="card">
-              <div className="section-title">API Access</div>
+              <div className="section-title">API Key & Webhook Usage</div>
               <p style={{ color: '#9ca3af', marginBottom: '24px', fontSize: '14px' }}>
-                Use your API key to access DBPowerAI programmatically via external webhooks.
+                Your API key authenticates webhook requests. Keep it secret and never expose it in client-side code.
               </p>
 
               {apiKey ? (
@@ -1109,41 +1116,741 @@ function SettingsPage() {
 
               <div className="divider"></div>
 
-              <div className="section-title">Usage Examples</div>
+              <div className="section-title">Webhook API</div>
+              <p style={{ color: '#9ca3af', marginBottom: '16px', fontSize: '14px' }}>
+                Trigger SQL analysis via HTTP POST. Authenticate using the x-api-key header.
+              </p>
+              <div style={{
+                background: '#0d0f11',
+                border: '1px solid #1f2327',
+                borderRadius: '8px',
+                padding: '12px 16px',
+                marginBottom: '24px',
+                fontFamily: 'monospace',
+                fontSize: '14px',
+                color: '#00ffa3'
+              }}>
+                POST https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook
+              </div>
 
               <div style={{ marginBottom: '20px' }}>
-                <label className="form-label">cURL Example</label>
-                <div className="code-block">
-                  <pre>{`curl -X POST https://your-project.supabase.co/functions/v1/external-analyze \\
+                <label className="form-label">cURL</label>
+                <div style={{ position: 'relative' }}>
+                  <div className="code-block">
+                    <pre>{`curl -X POST https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook \\
   -H "Content-Type: application/json" \\
-  -H "X-API-Key: ${apiKey || 'your_api_key_here'}" \\
+  -H "x-api-key: ${apiKey || '<API_KEY>'}" \\
   -d '{
-    "sql": "SELECT * FROM users WHERE id = 1",
-    "database_schema": "public",
-    "severity": "high"
+    "sql": "SELECT * FROM orders WHERE user_id = 123",
+    "db_type": "postgres"
   }'`}</pre>
+                  </div>
+                  <button
+                    onClick={() => handleCopyCode(`curl -X POST https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: ${apiKey || '<API_KEY>'}" \\
+  -d '{
+    "sql": "SELECT * FROM orders WHERE user_id = 123",
+    "db_type": "postgres"
+  }'`, 'curl')}
+                    className="button button-secondary"
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      padding: '6px 12px',
+                      fontSize: '13px',
+                      minWidth: '70px'
+                    }}
+                  >
+                    {copiedCode === 'curl' ? (
+                      <>
+                        <CheckCircle size={14} />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} />
+                        Copy
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
 
-              <div>
-                <label className="form-label">JavaScript Example</label>
-                <div className="code-block">
-                  <pre>{`const response = await fetch('https://your-project.supabase.co/functions/v1/external-analyze', {
+              <div style={{ marginBottom: '20px' }}>
+                <label className="form-label">JavaScript (fetch)</label>
+                <div style={{ position: 'relative' }}>
+                  <div className="code-block">
+                    <pre>{`const response = await fetch('https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'X-API-Key': '${apiKey || 'your_api_key_here'}'
+    'x-api-key': '${apiKey || '<API_KEY>'}'
   },
   body: JSON.stringify({
-    sql: 'SELECT * FROM users WHERE id = 1',
-    database_schema: 'public',
-    severity: 'high'
+    sql: "SELECT * FROM orders WHERE user_id = 123",
+    db_type: 'postgres'
   })
 });
 
 const result = await response.json();
-console.log(result.analysis);`}</pre>
+console.log('Score:', result.score);
+console.log('Rewritten:', result.rewrittenQuery);
+console.log('Index:', result.suggestedIndex);`}</pre>
+                  </div>
+                  <button
+                    onClick={() => handleCopyCode(`const response = await fetch('https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-api-key': '${apiKey || '<API_KEY>'}'
+  },
+  body: JSON.stringify({
+    sql: "SELECT * FROM orders WHERE user_id = 123",
+    db_type: 'postgres'
+  })
+});
+
+const result = await response.json();
+console.log('Score:', result.score);
+console.log('Rewritten:', result.rewrittenQuery);
+console.log('Index:', result.suggestedIndex);`, 'js-fetch')}
+                    className="button button-secondary"
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      padding: '6px 12px',
+                      fontSize: '13px',
+                      minWidth: '70px'
+                    }}
+                  >
+                    {copiedCode === 'js-fetch' ? (
+                      <>
+                        <CheckCircle size={14} />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} />
+                        Copy
+                      </>
+                    )}
+                  </button>
                 </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label className="form-label">Node.js (axios)</label>
+                <div style={{ position: 'relative' }}>
+                  <div className="code-block">
+                    <pre>{`import axios from 'axios';
+
+async function analyzeQuery(sql, dbType = 'postgres') {
+  try {
+    const response = await axios.post(
+      'https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook',
+      {
+        sql: sql,
+        db_type: dbType
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.DBPOWERAI_API_KEY
+        }
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error('Analysis failed:', error.response?.data);
+    throw error;
+  }
+}
+
+// Usage
+const result = await analyzeQuery(
+  "SELECT * FROM orders WHERE created_at > NOW() - INTERVAL '7 days'"
+);
+console.log(\`Performance score: \${result.score}\`);
+console.log(\`Suggested index: \${result.suggestedIndex}\`);`}</pre>
+                  </div>
+                  <button
+                    onClick={() => handleCopyCode(`import axios from 'axios';
+
+async function analyzeQuery(sql, dbType = 'postgres') {
+  try {
+    const response = await axios.post(
+      'https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook',
+      {
+        sql: sql,
+        db_type: dbType
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.DBPOWERAI_API_KEY
+        }
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error('Analysis failed:', error.response?.data);
+    throw error;
+  }
+}
+
+// Usage
+const result = await analyzeQuery(
+  "SELECT * FROM orders WHERE created_at > NOW() - INTERVAL '7 days'"
+);
+console.log(\`Performance score: \${result.score}\`);
+console.log(\`Suggested index: \${result.suggestedIndex}\`);`, 'node-axios')}
+                    className="button button-secondary"
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      padding: '6px 12px',
+                      fontSize: '13px',
+                      minWidth: '70px'
+                    }}
+                  >
+                    {copiedCode === 'node-axios' ? (
+                      <>
+                        <CheckCircle size={14} />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} />
+                        Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label className="form-label">Python (requests)</label>
+                <div style={{ position: 'relative' }}>
+                  <div className="code-block">
+                    <pre>{`import requests
+import os
+
+def analyze_query(sql, db_type='postgres', schema=None, explain_plan=None):
+    payload = {
+        'sql': sql,
+        'db_type': db_type
+    }
+
+    if schema:
+        payload['database_schema'] = schema
+
+    if explain_plan:
+        payload['explain_plan'] = explain_plan
+
+    response = requests.post(
+        'https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook',
+        headers={
+            'Content-Type': 'application/json',
+            'x-api-key': os.getenv('DBPOWERAI_API_KEY')
+        },
+        json=payload
+    )
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise Exception(f"Analysis failed: {response.status_code} - {response.text}")
+
+# Usage
+result = analyze_query(
+    "SELECT * FROM users WHERE email LIKE '%@gmail.com'",
+    db_type='postgres'
+)
+
+print(f"Score: {result['score']}")
+print(f"Severity: {result['severity']}")
+print(f"Speedup: {result['speedupEstimate']}")
+print(f"Bottleneck: {result.get('bottleneck', 'None')}")
+print(f"Index: {result['suggestedIndex']}")
+
+for issue in result['issues']:
+    print(f"Issue: {issue}")
+
+if result.get('warnings'):
+    print(f"Warnings: {result['warnings']}")
+
+if result.get('detected_patterns'):
+    import json
+    patterns = json.loads(result['detected_patterns'])
+    print(f"Detected patterns: {patterns}")`}</pre>
+                  </div>
+                  <button
+                    onClick={() => handleCopyCode(`import requests
+import os
+
+def analyze_query(sql, db_type='postgres', schema=None, explain_plan=None):
+    payload = {
+        'sql': sql,
+        'db_type': db_type
+    }
+
+    if schema:
+        payload['database_schema'] = schema
+
+    if explain_plan:
+        payload['explain_plan'] = explain_plan
+
+    response = requests.post(
+        'https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook',
+        headers={
+            'Content-Type': 'application/json',
+            'x-api-key': os.getenv('DBPOWERAI_API_KEY')
+        },
+        json=payload
+    )
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise Exception(f"Analysis failed: {response.status_code} - {response.text}")
+
+# Usage
+result = analyze_query(
+    "SELECT * FROM users WHERE email LIKE '%@gmail.com'",
+    db_type='postgres'
+)
+
+print(f"Score: {result['score']}")
+print(f"Severity: {result['severity']}")
+print(f"Speedup: {result['speedupEstimate']}")
+print(f"Bottleneck: {result.get('bottleneck', 'None')}")
+print(f"Index: {result['suggestedIndex']}")
+
+for issue in result['issues']:
+    print(f"Issue: {issue}")
+
+if result.get('warnings'):
+    print(f"Warnings: {result['warnings']}")
+
+if result.get('detected_patterns'):
+    import json
+    patterns = json.loads(result['detected_patterns'])
+    print(f"Detected patterns: {patterns}")`, 'python')}
+                    className="button button-secondary"
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      padding: '6px 12px',
+                      fontSize: '13px',
+                      minWidth: '70px'
+                    }}
+                  >
+                    {copiedCode === 'python' ? (
+                      <>
+                        <CheckCircle size={14} />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} />
+                        Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label className="form-label">GitHub Action</label>
+                <div style={{ position: 'relative' }}>
+                  <div className="code-block">
+                    <pre>{`name: Analyze SQL Queries
+
+on:
+  pull_request:
+    paths:
+      - '**.sql'
+      - 'migrations/**'
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Analyze SQL files
+        run: |
+          for file in $(find . -name "*.sql"); do
+            echo "Analyzing $file"
+
+            SQL_CONTENT=$(cat "$file" | jq -Rs .)
+
+            RESPONSE=$(curl -s -X POST \\
+              https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook \\
+              -H "Content-Type: application/json" \\
+              -H "x-api-key: \${{ secrets.DBPOWERAI_API_KEY }}" \\
+              -d "{\\"sql\\": $SQL_CONTENT, \\"db_type\\": \\"postgres\\"}")
+
+            SCORE=$(echo $RESPONSE | jq -r '.score')
+            SEVERITY=$(echo $RESPONSE | jq -r '.severity')
+
+            echo "Score: $SCORE | Severity: $SEVERITY"
+
+            if [ "$SEVERITY" = "high" ]; then
+              echo "::error file=$file::High severity issues detected"
+              exit 1
+            fi
+          done`}</pre>
+                  </div>
+                  <button
+                    onClick={() => handleCopyCode(`name: Analyze SQL Queries
+
+on:
+  pull_request:
+    paths:
+      - '**.sql'
+      - 'migrations/**'
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Analyze SQL files
+        run: |
+          for file in $(find . -name "*.sql"); do
+            echo "Analyzing $file"
+
+            SQL_CONTENT=$(cat "$file" | jq -Rs .)
+
+            RESPONSE=$(curl -s -X POST \\
+              https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook \\
+              -H "Content-Type: application/json" \\
+              -H "x-api-key: \${{ secrets.DBPOWERAI_API_KEY }}" \\
+              -d "{\\"sql\\": $SQL_CONTENT, \\"db_type\\": \\"postgres\\"}")
+
+            SCORE=$(echo $RESPONSE | jq -r '.score')
+            SEVERITY=$(echo $RESPONSE | jq -r '.severity')
+
+            echo "Score: $SCORE | Severity: $SEVERITY"
+
+            if [ "$SEVERITY" = "high" ]; then
+              echo "::error file=$file::High severity issues detected"
+              exit 1
+            fi
+          done`, 'github-action')}
+                    className="button button-secondary"
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      padding: '6px 12px',
+                      fontSize: '13px',
+                      minWidth: '70px'
+                    }}
+                  >
+                    {copiedCode === 'github-action' ? (
+                      <>
+                        <CheckCircle size={14} />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} />
+                        Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p style={{ color: '#6b7280', fontSize: '13px', marginTop: '8px', fontStyle: 'italic' }}>
+                  💡 Store your API key in GitHub Secrets as DBPOWERAI_API_KEY
+                </p>
+              </div>
+
+              <div className="divider"></div>
+
+              <div className="section-title">Request & Response Format</div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label className="form-label">Request Fields</label>
+                <div style={{ position: 'relative' }}>
+                  <div className="code-block">
+                    <pre>{`{
+  "sql": "string (required) — Your SQL query",
+  "db_type": "string (optional) — 'postgres' or 'mysql'",
+  "database_schema": "string (optional) — CREATE TABLE statements",
+  "explain_plan": "string (optional) — EXPLAIN output"
+}`}</pre>
+                  </div>
+                  <button
+                    onClick={() => handleCopyCode(`{
+  "sql": "string (required) — Your SQL query",
+  "db_type": "string (optional) — 'postgres' or 'mysql'",
+  "database_schema": "string (optional) — CREATE TABLE statements",
+  "explain_plan": "string (optional) — EXPLAIN output"
+}`, 'request-fields')}
+                    className="button button-secondary"
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      padding: '6px 12px',
+                      fontSize: '13px',
+                      minWidth: '70px'
+                    }}
+                  >
+                    {copiedCode === 'request-fields' ? (
+                      <>
+                        <CheckCircle size={14} />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} />
+                        Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label className="form-label">Response Fields</label>
+                <div style={{ position: 'relative' }}>
+                  <div className="code-block">
+                    <pre>{`{
+  "score": number,              // 0-100 performance score (e.g., 85)
+  "severity": string,           // "low", "medium", or "high"
+  "speedupEstimate": number,    // Estimated speedup multiplier (e.g., 0.5)
+  "rewrittenQuery": string,     // Optimized SQL
+  "suggestedIndex": string,     // CREATE INDEX statement or message
+  "issues": string[],           // Array of detected issues
+  "semantic_warning": string | null,  // Semantic change warning
+  "validator_status": string,   // "valid" or validation status
+  "bottleneck": string | null,  // Main performance bottleneck detected
+  "analysis": string | null,    // Detailed analysis JSON string
+  "warnings": string | null,    // Performance warnings
+  "detected_patterns": string | null,  // Anti-patterns found (JSON)
+  "schema": string | null,      // Database schema used
+  "execution_plan": string | null     // EXPLAIN plan analysis
+}`}</pre>
+                  </div>
+                  <button
+                    onClick={() => handleCopyCode(`{
+  "score": number,              // 0-100 performance score (e.g., 85)
+  "severity": string,           // "low", "medium", or "high"
+  "speedupEstimate": number,    // Estimated speedup multiplier (e.g., 0.5)
+  "rewrittenQuery": string,     // Optimized SQL
+  "suggestedIndex": string,     // CREATE INDEX statement or message
+  "issues": string[],           // Array of detected issues
+  "semantic_warning": string | null,  // Semantic change warning
+  "validator_status": string,   // "valid" or validation status
+  "bottleneck": string | null,  // Main performance bottleneck detected
+  "analysis": string | null,    // Detailed analysis JSON string
+  "warnings": string | null,    // Performance warnings
+  "detected_patterns": string | null,  // Anti-patterns found (JSON)
+  "schema": string | null,      // Database schema used
+  "execution_plan": string | null     // EXPLAIN plan analysis
+}`, 'response-fields')}
+                    className="button button-secondary"
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      padding: '6px 12px',
+                      fontSize: '13px',
+                      minWidth: '70px'
+                    }}
+                  >
+                    {copiedCode === 'response-fields' ? (
+                      <>
+                        <CheckCircle size={14} />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} />
+                        Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="divider"></div>
+
+              <div className="section-title">Webhook FAQ</div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div>
+                  <h4 style={{ fontSize: '15px', fontWeight: '600', color: '#e5e5e5', marginBottom: '8px' }}>
+                    Do I need a JWT, signature, or timestamp?
+                  </h4>
+                  <p style={{ fontSize: '14px', color: '#9ca3af', lineHeight: '1.6' }}>
+                    No. Authentication uses only the x-api-key header. No signing, no HMAC, no additional security headers.
+                  </p>
+                </div>
+
+                <div>
+                  <h4 style={{ fontSize: '15px', fontWeight: '600', color: '#e5e5e5', marginBottom: '8px' }}>
+                    What is the exact endpoint URL?
+                  </h4>
+                  <div style={{ position: 'relative', marginTop: '8px' }}>
+                    <div className="code-block">
+                      <pre>POST https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook</pre>
+                    </div>
+                    <button
+                      onClick={() => handleCopyCode('POST https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook', 'faq-endpoint')}
+                      className="button button-secondary"
+                      style={{
+                        position: 'absolute',
+                        top: '8px',
+                        right: '8px',
+                        padding: '6px 12px',
+                        fontSize: '13px',
+                        minWidth: '70px'
+                      }}
+                    >
+                      {copiedCode === 'faq-endpoint' ? (
+                        <>
+                          <CheckCircle size={14} />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={14} />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 style={{ fontSize: '15px', fontWeight: '600', color: '#e5e5e5', marginBottom: '8px' }}>
+                    What fields does the request accept?
+                  </h4>
+                  <p style={{ fontSize: '14px', color: '#9ca3af', lineHeight: '1.6', marginBottom: '8px' }}>
+                    • <strong>sql</strong> (string, required) — Your SQL query<br />
+                    • <strong>db_type</strong> (string, optional) — "postgres" or "mysql"<br />
+                    • <strong>database_schema</strong> (string, optional) — CREATE TABLE statements for context<br />
+                    • <strong>explain_plan</strong> (string, optional) — EXPLAIN output for deeper analysis
+                  </p>
+                  <p style={{ fontSize: '13px', color: '#6b7280', fontStyle: 'italic' }}>
+                    No other fields are supported. Do not send invented fields.
+                  </p>
+                </div>
+
+                <div>
+                  <h4 style={{ fontSize: '15px', fontWeight: '600', color: '#e5e5e5', marginBottom: '8px' }}>
+                    What errors can I get?
+                  </h4>
+                  <p style={{ fontSize: '14px', color: '#9ca3af', lineHeight: '1.6' }}>
+                    • <strong>400 Bad Request</strong> — Missing sql field or invalid JSON<br />
+                    • <strong>401 Unauthorized</strong> — Missing x-api-key header<br />
+                    • <strong>403 Forbidden</strong> — Invalid or expired API key<br />
+                    • <strong>500 Internal Server Error</strong> — Contact support if this persists
+                  </p>
+                </div>
+
+                <div>
+                  <h4 style={{ fontSize: '15px', fontWeight: '600', color: '#e5e5e5', marginBottom: '8px' }}>
+                    Is there a payload size limit?
+                  </h4>
+                  <p style={{ fontSize: '14px', color: '#9ca3af', lineHeight: '1.6' }}>
+                    Keep queries under 50KB. For very large schemas, include only relevant tables.
+                  </p>
+                </div>
+
+                <div>
+                  <h4 style={{ fontSize: '15px', fontWeight: '600', color: '#e5e5e5', marginBottom: '8px' }}>
+                    How do I test the webhook?
+                  </h4>
+                  <div style={{ position: 'relative', marginTop: '8px' }}>
+                    <div className="code-block">
+                      <pre>{`curl -X POST https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: YOUR_API_KEY" \\
+  -d '{"sql": "SELECT * FROM users LIMIT 10", "db_type": "postgres"}'`}</pre>
+                    </div>
+                    <button
+                      onClick={() => handleCopyCode(`curl -X POST https://onfhmkhhjnouspczrwcr.supabase.co/functions/v1/webhook \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: YOUR_API_KEY" \\
+  -d '{"sql": "SELECT * FROM users LIMIT 10", "db_type": "postgres"}'`, 'faq-test')}
+                      className="button button-secondary"
+                      style={{
+                        position: 'absolute',
+                        top: '8px',
+                        right: '8px',
+                        padding: '6px 12px',
+                        fontSize: '13px',
+                        minWidth: '70px'
+                      }}
+                    >
+                      {copiedCode === 'faq-test' ? (
+                        <>
+                          <CheckCircle size={14} />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={14} />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '13px', color: '#9ca3af', marginTop: '8px' }}>
+                    Check for a 200 response with a score field.
+                  </p>
+                </div>
+
+                <div>
+                  <h4 style={{ fontSize: '15px', fontWeight: '600', color: '#e5e5e5', marginBottom: '8px' }}>
+                    Can I send EXPLAIN output for better analysis?
+                  </h4>
+                  <p style={{ fontSize: '14px', color: '#9ca3af', lineHeight: '1.6' }}>
+                    Yes. Run EXPLAIN or EXPLAIN ANALYZE on your database, then include the output in the explain_plan field. This gives more accurate bottleneck detection.
+                  </p>
+                </div>
+              </div>
+
+              <div className="divider"></div>
+
+              <div style={{
+                background: 'rgba(0, 255, 163, 0.05)',
+                border: '1px solid rgba(0, 255, 163, 0.2)',
+                borderRadius: '8px',
+                padding: '16px',
+                marginBottom: '16px'
+              }}>
+                <p style={{ fontSize: '14px', color: '#9ca3af', margin: 0 }}>
+                  🔒 <strong style={{ color: '#e5e5e5' }}>Security Notice:</strong> Never expose your API key in client-side code. Use it only in backend services, CI/CD pipelines, or server environments.
+                </p>
+              </div>
+
+              <div style={{
+                background: 'rgba(59, 130, 246, 0.05)',
+                border: '1px solid rgba(59, 130, 246, 0.2)',
+                borderRadius: '8px',
+                padding: '16px'
+              }}>
+                <p style={{ fontSize: '14px', color: '#9ca3af', margin: 0 }}>
+                  ✓ Include database_schema for better index recommendations<br />
+                  ✓ Send explain_plan output when available for accurate bottleneck detection<br />
+                  ✓ Speedup estimates are pattern-based — always benchmark in staging<br />
+                  ✓ Check semantic_warning field before deploying rewritten queries<br />
+                  ✓ Store API key in environment variables (DBPOWERAI_API_KEY)
+                </p>
               </div>
             </div>
           )}
