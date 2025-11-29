@@ -39,6 +39,7 @@ jobs:
         run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}"
 
       - name: Sync migrations (safe)
+        if: false
         run: |
           echo "Attempting to sync remote migrations into the repository (read-only)..."
           # Try to pull migrations from remote. Allow it to run but don't auto-commit here.
@@ -60,6 +61,7 @@ jobs:
           fi
 
       - name: Apply DB migrations
+        if: false
         run: |
           echo "Applying Supabase migrations..."
           supabase db push
