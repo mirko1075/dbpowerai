@@ -80,16 +80,7 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[regenerate-api-key] Regenerating API key for user: ${user.id}`);
 
-    // Generate cryptographically secure API key
-    // 32 bytes = 64 hex characters
-    const randomBytes = new Uint8Array(32);
-    crypto.getRandomValues(randomBytes);
-    const hexKey = Array.from(randomBytes)
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-    const apiKey = `dbp_${hexKey}`;
-
-    // Update user profile with new API key using service role
+    // Create admin client to call the SECURITY DEFINER function
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: {
         autoRefreshToken: false,
@@ -97,17 +88,22 @@ Deno.serve(async (req: Request) => {
       },
     });
 
-    const { error: updateError } = await supabaseAdmin
-      .from("user_profiles")
-      .update({ api_key: apiKey })
-      .eq("id", user.id);
+    // Call the SQL function that handles permission checks and key generation
+    // This function bypasses RLS with SECURITY DEFINER privileges
+    const { data: apiKey, error: rpcError } = await supabaseAdmin.rpc(
+      'rotate_user_api_key',
+      {
+        p_requester: user.id,
+        p_target: user.id,
+      }
+    );
 
-    if (updateError) {
-      console.error("[regenerate-api-key] Failed to update API key:", updateError);
+    if (rpcError || !apiKey) {
+      console.error("[regenerate-api-key] Failed to rotate API key:", rpcError);
       return new Response(
         JSON.stringify({
           error: "Failed to regenerate API key",
-          details: updateError.message,
+          details: rpcError?.message || "Function returned no key",
         }),
         {
           status: 500,
