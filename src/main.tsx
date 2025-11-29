@@ -14,6 +14,7 @@ import Pricing from './pages/Pricing.tsx';
 import AppPage from './pages/AppPage.tsx';
 import Dashboard from './pages/Dashboard.tsx';
 import ProfilePage from './pages/ProfilePage.tsx';
+import SettingsPage from './pages/SettingsPage.tsx';
 import ContactPage from './pages/Contact.tsx';
 import Admin from './pages/Admin.tsx';
 import ProtectedRoute from './components/ProtectedRoute.tsx';
@@ -127,6 +128,16 @@ const router = createBrowserRouter([
           <PageViewTracker>
             <ProtectedRoute>
               <ProfilePage />
+            </ProtectedRoute>
+          </PageViewTracker>
+        ),
+      },
+      {
+        path: '/settings',
+        element: (
+          <PageViewTracker>
+            <ProtectedRoute>
+              <SettingsPage />
             </ProtectedRoute>
           </PageViewTracker>
         ),
