@@ -3,6 +3,24 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { analyzeWithValidation, fakeAnalysis } from "../_shared/analyzer.ts";
 import { sendSlackMessage, buildSlackMessage, AnalysisShape } from "../_shared/slack.ts";
 
+// Typed shapes to satisfy linter
+type Profile = {
+  id: string;
+  slack_webhook_url?: string | null;
+  slack_enabled?: boolean | null;
+  deleted_at?: string | null;
+};
+
+type WebhookBody = {
+  sql: string;
+  db_type?: string;
+  database_schema?: string;
+  schema?: string;
+  explain_plan?: string;
+  explain?: string;
+  ts?: number | string;
+};
+
 // Module load time log 
 console.log("[webhook] module initialized");
 
@@ -21,7 +39,7 @@ export const config = {
     allowOrigins: ["*"]
   }
 };
-console.log('config :>> ', config);
+
 Deno.serve(async (req: Request) => {
   try {
     const preview =
@@ -86,19 +104,48 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from("user_profiles")
-      .select("id, slack_webhook_url, slack_enabled, deleted_at")
-      .eq("api_key", userApiKeyHeader)
-      .single();
+    // Try client lookup first; fall back to REST endpoint if it fails (handles gateway/JWT issues)
+  let profile: Profile | null = null;
+  let profileError: string | null = null;
+    try {
+      const res = await supabaseAdmin
+        .from("user_profiles")
+        .select("id, slack_webhook_url, slack_enabled, deleted_at")
+        .eq("api_key", userApiKeyHeader)
+        .single();
+      profile = res.data;
+      profileError = res.error ? String(res.error) : null;
+    } catch (e) {
+      profile = null;
+      profileError = String(e);
+    }
+
+    if (!profile) {
+      try {
+        const url = `${supabaseUrl.replace(/\/$/, "")}/rest/v1/user_profiles?select=id,slack_webhook_url,slack_enabled,deleted_at&api_key=eq.${encodeURIComponent(
+          userApiKeyHeader
+        )}&limit=1`;
+        const r = await fetch(url, {
+          headers: {
+            apikey: supabaseServiceKey,
+            Authorization: `Bearer ${supabaseServiceKey}`,
+            Accept: "application/json"
+          }
+        });
+        if (r.ok) {
+          const bodyJson = await r.json();
+          if (Array.isArray(bodyJson) && bodyJson.length > 0) profile = bodyJson[0];
+        } else {
+          profileError = `rest lookup failed status=${r.status}`;
+        }
+      } catch (e) {
+        profileError = String(e);
+      }
+    }
 
     await writeDebug("info", "profile lookup", {
       profile: profile
-        ? {
-            id: profile.id,
-            deleted_at: profile.deleted_at,
-            slack_enabled: !!profile.slack_enabled
-          }
+        ? { id: profile.id, deleted_at: profile.deleted_at, slack_enabled: !!profile.slack_enabled }
         : null,
       profileError: profileError ? String(profileError) : null
     });
@@ -107,10 +154,7 @@ Deno.serve(async (req: Request) => {
       await writeDebug("warn", "invalid per-user API key", {
         api_key_preview: `${userApiKeyHeader.slice(0, 4)}...${userApiKeyHeader.slice(-4)}`
       });
-      return new Response(
-        JSON.stringify({ error: "Invalid API key" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Invalid API key" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (profile.deleted_at) {
@@ -122,10 +166,10 @@ Deno.serve(async (req: Request) => {
 
     // Parse body
     const bodyText = await req.text();
-    let body: Record<string, unknown> | null = null;
+    let body: WebhookBody | null = null;
 
     try {
-      body = bodyText ? JSON.parse(bodyText) : null;
+      body = bodyText ? (JSON.parse(bodyText) as WebhookBody) : null;
     } catch (err) {
       await writeDebug("warn", "invalid JSON body parse", { error: String(err) });
       return new Response(
@@ -134,15 +178,15 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    if (!body || !("sql" in body) || typeof (body as any).sql !== "string") {
+    if (!body || typeof body.sql !== "string") {
       return new Response(
         JSON.stringify({ error: "'sql' field required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Extract fields
-    const bodyRec = body as Record<string, unknown>;
+  // Extract fields
+  const bodyRec = body as WebhookBody;
     const sql = String(bodyRec["sql"]);
     const dbTypeVal = bodyRec["db_type"]
       ? String(bodyRec["db_type"])
