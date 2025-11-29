@@ -13,7 +13,6 @@ import Signup from './pages/Signup.tsx';
 import Pricing from './pages/Pricing.tsx';
 import AppPage from './pages/AppPage.tsx';
 import Dashboard from './pages/Dashboard.tsx';
-import ProfilePage from './pages/ProfilePage.tsx';
 import SettingsPage from './pages/SettingsPage.tsx';
 import ContactPage from './pages/Contact.tsx';
 import Admin from './pages/Admin.tsx';
@@ -118,16 +117,6 @@ const router = createBrowserRouter([
           <PageViewTracker>
             <ProtectedRoute>
               <Dashboard />
-            </ProtectedRoute>
-          </PageViewTracker>
-        ),
-      },
-      {
-        path: '/profile',
-        element: (
-          <PageViewTracker>
-            <ProtectedRoute>
-              <ProfilePage />
             </ProtectedRoute>
           </PageViewTracker>
         ),
