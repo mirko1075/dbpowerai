@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import UsageSummary from '../components/UsageSummary';
 import { supabase } from '../lib/supabase';
 import { logEvent } from '../lib/logEvent';
 import { trackEvent } from '../utils/analytics';
@@ -57,13 +56,6 @@ interface UserPlan {
   early_expires_at?: string | null;
 }
 
-interface QueryHistory {
-  id: string;
-  input_query: string;
-  analysis_result: any;
-  created_at: string;
-}
-
 type SortField = 'created_at' | 'db_type' | 'query_length' | 'bottleneck' | 'severity' | 'improvement';
 type SortDirection = 'asc' | 'desc';
 type DateFilter = 'all' | 'today' | '7days' | '30days';
@@ -89,8 +81,6 @@ function Dashboard() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   const [userPlan, setUserPlan] = useState<UserPlan | null>(null);
-  const [queryHistory, setQueryHistory] = useState<QueryHistory[]>([]);
-  const [selectedHistoryItem, setSelectedHistoryItem] = useState<QueryHistory | null>(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [checklistState, setChecklistState] = useState({
     runAnalysis: false,
@@ -218,16 +208,6 @@ function Dashboard() {
       if (!planError && planData) {
         setUserPlan(planData);
       }
-
-      const { data: historyData, error: historyError } = await supabase
-        .from('query_history')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false });
-
-      if (!historyError && historyData) {
-        setQueryHistory(historyData);
-      }
     } catch (err) {
       setError('An unexpected error occurred');
       console.error('Error:', err);
@@ -272,8 +252,8 @@ function Dashboard() {
     }
 
     filtered.sort((a, b) => {
-      let aValue: any;
-      let bValue: any;
+      let aValue: number | string;
+      let bValue: number | string;
 
       switch (sortField) {
         case 'created_at':
@@ -399,8 +379,8 @@ function Dashboard() {
       await fetchQueries();
 
       setTimeout(() => setSuccessMessage(''), 5000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to re-run optimization');
+    } catch (err: unknown) {
+      setError((err as Error)?.message || 'Failed to re-run optimization');
     } finally {
       setRerunLoading(false);
     }
@@ -428,8 +408,8 @@ function Dashboard() {
       setDeleteConfirm(null);
 
       setTimeout(() => setSuccessMessage(''), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete query');
+    } catch (err: unknown) {
+      setError((err as Error)?.message || 'Failed to delete query');
     }
   };
 
@@ -1533,109 +1513,6 @@ ${query.execution_plan || 'N/A'}
             </div>
           )}
 
-          {/* Query History Section */}
-          {queryHistory.length > 0 && (
-            <div style={{
-              background: '#111418',
-              border: '1px solid #1f2327',
-              borderRadius: '12px',
-              padding: '24px',
-              marginBottom: '24px'
-            }}>
-              <h2 style={{
-                fontSize: '18px',
-                fontWeight: '700',
-                color: '#ffffff',
-                marginBottom: '16px'
-              }}>
-                Query History {userPlan?.plan === 'free' && <span style={{ fontSize: '14px', color: '#6b7280', fontWeight: '500' }}>(Last 5)</span>}
-              </h2>
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px'
-              }}>
-                {(userPlan?.plan === 'free' ? queryHistory.slice(0, 5) : queryHistory).map((item) => (
-                  <div
-                    key={item.id}
-                    style={{
-                      background: '#0a0c0e',
-                      border: '1px solid #1f2327',
-                      borderRadius: '8px',
-                      padding: '16px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: '12px',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = 'rgba(0, 255, 163, 0.3)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#1f2327';
-                    }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        fontSize: '13px',
-                        color: '#6b7280',
-                        marginBottom: '4px'
-                      }}>
-                        {new Date(item.created_at).toLocaleString()}
-                      </div>
-                      <div style={{
-                        fontSize: '14px',
-                        color: '#e5e5e5',
-                        fontFamily: "'Fira Code', monospace",
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis'
-                      }}>
-                        {item.input_query}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setSelectedHistoryItem(item)}
-                      style={{
-                        background: 'transparent',
-                        border: '1px solid #1f2327',
-                        color: '#9ca3af',
-                        padding: '8px 16px',
-                        borderRadius: '6px',
-                        fontSize: '13px',
-                        fontWeight: '600',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        whiteSpace: 'nowrap'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = '#00ffa3';
-                        e.currentTarget.style.color = '#00ffa3';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = '#1f2327';
-                        e.currentTarget.style.color = '#9ca3af';
-                      }}
-                    >
-                      View Details
-                    </button>
-                  </div>
-                ))}
-              </div>
-              {userPlan?.plan === 'free' && queryHistory.length > 5 && (
-                <div style={{
-                  marginTop: '16px',
-                  textAlign: 'center',
-                  fontSize: '14px',
-                  color: '#6b7280'
-                }}>
-                  Upgrade to view full history ({queryHistory.length} total queries)
-                </div>
-              )}
-            </div>
-          )}
-
           {successMessage && (
             <div className="alert alert-success">
               <CheckCircle size={20} />
@@ -2547,174 +2424,6 @@ ${query.execution_plan || 'N/A'}
                   >
                     Yes, Delete
                   </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Query History Detail Modal */}
-        {selectedHistoryItem && (
-          <div className="modal-overlay" onClick={() => setSelectedHistoryItem(null)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-              <button
-                className="modal-close-button"
-                onClick={() => setSelectedHistoryItem(null)}
-                aria-label="Close modal"
-              >
-                <X size={20} />
-              </button>
-
-              <div style={{
-                padding: 'clamp(20px, 4vw, 32px)',
-                paddingTop: 'clamp(24px, 5vw, 32px)',
-                borderBottom: '1px solid #1f2327'
-              }}>
-                <h2 style={{
-                  fontSize: 'clamp(20px, 4vw, 24px)',
-                  fontWeight: '700',
-                  color: '#ffffff',
-                  margin: 0
-                }}>
-                  Analysis Details
-                </h2>
-                <p style={{
-                  fontSize: '14px',
-                  color: '#6b7280',
-                  marginTop: '8px'
-                }}>
-                  {new Date(selectedHistoryItem.created_at).toLocaleString()}
-                </p>
-              </div>
-
-              <div style={{ padding: 'clamp(20px, 4vw, 32px)' }}>
-                <div style={{ marginBottom: '32px' }}>
-                  <div className="section-label">
-                    <span>Query</span>
-                  </div>
-                  <div className="code-block">{selectedHistoryItem.input_query}</div>
-                </div>
-
-                <div style={{ marginBottom: '32px' }}>
-                  <div className="section-label">
-                    <span>Analysis Result</span>
-                  </div>
-                  <div style={{
-                    background: '#0a0c0e',
-                    border: '1px solid #1f2327',
-                    borderRadius: '8px',
-                    padding: '20px'
-                  }}>
-                    <div style={{
-                      display: 'grid',
-                      gap: '12px',
-                      fontSize: '14px'
-                    }}>
-                      {selectedHistoryItem.analysis_result.score !== undefined && (
-                        <div>
-                          <span style={{ color: '#9ca3af', fontWeight: '600' }}>Score: </span>
-                          <span style={{ color: '#00ffa3', fontWeight: '700' }}>{selectedHistoryItem.analysis_result.score}/100</span>
-                        </div>
-                      )}
-                      {selectedHistoryItem.analysis_result.severity && (
-                        <div>
-                          <span style={{ color: '#9ca3af', fontWeight: '600' }}>Severity: </span>
-                          <span style={{
-                            color: selectedHistoryItem.analysis_result.severity === 'critical' ? '#ef4444' :
-                                  selectedHistoryItem.analysis_result.severity === 'high' ? '#fb923c' :
-                                  selectedHistoryItem.analysis_result.severity === 'medium' ? '#eab308' : '#00ffa3',
-                            fontWeight: '700',
-                            textTransform: 'uppercase'
-                          }}>
-                            {selectedHistoryItem.analysis_result.severity}
-                          </span>
-                        </div>
-                      )}
-                      {selectedHistoryItem.analysis_result.speedupEstimate && (
-                        <div>
-                          <span style={{ color: '#9ca3af', fontWeight: '600' }}>Speed Improvement: </span>
-                          <span style={{ color: '#00ffa3', fontWeight: '700' }}>
-                            +{(selectedHistoryItem.analysis_result.speedupEstimate * 100).toFixed(0)}%
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {selectedHistoryItem.analysis_result.issues && selectedHistoryItem.analysis_result.issues.length > 0 && (
-                      <div style={{ marginTop: '20px' }}>
-                        <div style={{
-                          fontSize: '13px',
-                          fontWeight: '700',
-                          color: '#00ffa3',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                          marginBottom: '12px'
-                        }}>
-                          Issues Found
-                        </div>
-                        <ul style={{
-                          listStyle: 'none',
-                          padding: 0,
-                          margin: 0,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '8px'
-                        }}>
-                          {selectedHistoryItem.analysis_result.issues.map((issue: string, idx: number) => (
-                            <li key={idx} style={{
-                              color: '#e5e5e5',
-                              fontSize: '14px',
-                              paddingLeft: '20px',
-                              position: 'relative'
-                            }}>
-                              <span style={{
-                                position: 'absolute',
-                                left: 0,
-                                color: '#ef4444'
-                              }}>•</span>
-                              {issue}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {selectedHistoryItem.analysis_result.rewrittenQuery && (
-                      <div style={{ marginTop: '20px' }}>
-                        <div style={{
-                          fontSize: '13px',
-                          fontWeight: '700',
-                          color: '#00ffa3',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                          marginBottom: '12px'
-                        }}>
-                          Optimized Query
-                        </div>
-                        <div className="code-block" style={{ color: '#00ffa3' }}>
-                          {selectedHistoryItem.analysis_result.rewrittenQuery}
-                        </div>
-                      </div>
-                    )}
-
-                    {selectedHistoryItem.analysis_result.suggestedIndex && (
-                      <div style={{ marginTop: '20px' }}>
-                        <div style={{
-                          fontSize: '13px',
-                          fontWeight: '700',
-                          color: '#00ffa3',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                          marginBottom: '12px'
-                        }}>
-                          Suggested Index
-                        </div>
-                        <div className="code-block">
-                          {selectedHistoryItem.analysis_result.suggestedIndex}
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 </div>
               </div>
             </div>

@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { analyzeWithValidation, fakeAnalysis, type AnalysisResult } from '../_shared/analyzer.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,114 +12,6 @@ interface AnalysisRequest {
   sql: string;
   database_schema?: string;
   explain_plan?: string;
-}
-
-interface AnalysisResult {
-  score: number;
-  severity: "low" | "medium" | "high" | "critical";
-  issues: string[];
-  suggestedIndex: string;
-  rewrittenQuery: string;
-  speedupEstimate: number;
-}
-
-function analyzeQuery(request: AnalysisRequest): AnalysisResult {
-  const { sql } = request;
-  const queryLower = sql.toLowerCase();
-
-  const issues: string[] = [];
-  let score = 85;
-  let severity: "low" | "medium" | "high" | "critical" = "low";
-
-  // Analyze common performance issues
-  if (queryLower.includes("select *")) {
-    issues.push("Using SELECT * retrieves unnecessary columns");
-    score -= 15;
-  }
-
-  if (queryLower.includes("where") && !queryLower.includes("index")) {
-    issues.push("Missing index on WHERE clause columns");
-    score -= 20;
-    severity = "high";
-  }
-
-  if (queryLower.includes("order by") && !queryLower.includes("limit")) {
-    issues.push("ORDER BY without LIMIT can cause performance issues");
-    score -= 10;
-  }
-
-  if (queryLower.includes("like '%")) {
-    issues.push("Leading wildcard in LIKE prevents index usage");
-    score -= 15;
-    severity = "high";
-  }
-
-  if (queryLower.includes("or")) {
-    issues.push("OR conditions may prevent index optimization");
-    score -= 10;
-  }
-
-  if (
-    queryLower.includes("join") &&
-    !queryLower.includes("on") &&
-    !queryLower.includes("using")
-  ) {
-    issues.push("JOIN without proper ON clause");
-    score -= 25;
-    severity = "critical";
-  }
-
-  if (queryLower.includes("subquery") || queryLower.match(/\(select/gi)) {
-    issues.push("Subquery detected - consider using JOIN instead");
-    score -= 12;
-  }
-
-  // Determine severity
-  if (score < 40) {
-    severity = "critical";
-  } else if (score < 60) {
-    severity = "high";
-  } else if (score < 75) {
-    severity = "medium";
-  }
-
-  // Suggest index
-  const tableName = sql.match(/from\s+(\w+)/i)?.[1] || "your_table";
-  const whereColumn = sql.match(/where\s+(\w+)/i)?.[1] || "status";
-
-  const suggestedIndex = issues.some((i) => i.includes("Missing index"))
-    ? `CREATE INDEX idx_${tableName}_${whereColumn}\nON ${tableName}(${whereColumn});`
-    : "";
-
-  // Rewrite query
-  let rewrittenQuery = sql.trim();
-
-  if (queryLower.includes("select *")) {
-    rewrittenQuery = rewrittenQuery.replace(
-      /SELECT\s+\*/gi,
-      "SELECT id, status, created_at"
-    );
-  }
-
-  if (queryLower.includes("order by") && !queryLower.includes("limit")) {
-    if (!rewrittenQuery.endsWith(";")) {
-      rewrittenQuery += "\nLIMIT 100;";
-    } else {
-      rewrittenQuery = rewrittenQuery.replace(/;$/, "\nLIMIT 100;");
-    }
-  }
-
-  const speedupEstimate =
-    issues.length > 0 ? Math.min(0.9, 0.2 + issues.length * 0.15) : 0.1;
-
-  return {
-    score: Math.max(0, Math.min(100, score)),
-    severity,
-    issues: issues.length > 0 ? issues : ["No major issues found"],
-    suggestedIndex,
-    rewrittenQuery,
-    speedupEstimate,
-  };
 }
 
 async function sendSlackNotification(
@@ -134,13 +27,13 @@ async function sendSlackNotification(
   };
 
   const message = {
-    text: `🔍 New SQL Analysis from Webhook`,
+    text: `🔍 New SQL Analysis from Webhook API`,
     blocks: [
       {
         type: "header",
         text: {
           type: "plain_text",
-          text: "🔍 SQL Query Analyzed via Webhook",
+          text: "🔍 SQL Query Analyzed via Webhook API",
         },
       },
       {
@@ -160,7 +53,7 @@ async function sendSlackNotification(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*Query:*\n\`\`\`${sql.substring(0, 200)}${sql.length > 200 ? '...' : ''}\`\`\``,
+          text: `*Original Query:*\n\`\`\`${sql.substring(0, 200)}${sql.length > 200 ? '...' : ''}\`\`\``,
         },
       },
       {
@@ -170,14 +63,42 @@ async function sendSlackNotification(
           text: `*Issues Found:*\n${analysis.issues.map(i => `• ${i}`).join('\n')}`,
         },
       },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Optimized Query:*\n\`\`\`${analysis.rewrittenQuery ? analysis.rewrittenQuery.substring(0, 300) : 'No rewrite available'}${analysis.rewrittenQuery && analysis.rewrittenQuery.length > 300 ? '...' : ''}\`\`\``,
+        },
+      },
     ],
     attachments: [
       {
         color: severityColor[analysis.severity],
-        text: `Speedup Estimate: ${(analysis.speedupEstimate * 100).toFixed(0)}%`,
+        fields: [
+          {
+            title: "Speedup Estimate",
+            value: `${(analysis.speedupEstimate * 100).toFixed(0)}%`,
+            short: true
+          },
+          {
+            title: "Validation Status",
+            value: analysis.validator_status === "valid" ? "✅ Valid" : "⚠️ Needs Review",
+            short: true
+          }
+        ]
       },
     ],
   };
+
+  if (analysis.suggestedIndex) {
+    message.blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Suggested Index:*\n\`\`\`${analysis.suggestedIndex}\`\`\``,
+      },
+    });
+  }
 
   try {
     const response = await fetch(webhookUrl, {
@@ -188,6 +109,8 @@ async function sendSlackNotification(
 
     if (!response.ok) {
       console.error(`[webhook] Slack notification failed: ${response.status}`);
+    } else {
+      console.log(`[webhook] Slack notification sent successfully`);
     }
   } catch (error) {
     console.error("[webhook] Failed to send Slack notification:", error);
@@ -320,8 +243,11 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[webhook] Analyzing query for user ${profile.id}`);
 
-    // Perform analysis
-    const analysisResult = analyzeQuery(analysisRequest);
+    // Perform analysis using shared analyzer (same as form)
+    const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
+    const analysisResult = openaiApiKey
+      ? await analyzeWithValidation(analysisRequest.sql, openaiApiKey, supabaseAdmin)
+      : fakeAnalysis({ query: analysisRequest.sql });
 
     // Save to queries table with origin='webhook'
     const { error: insertError } = await supabaseAdmin
@@ -336,7 +262,7 @@ Deno.serve(async (req: Request) => {
         schema: analysisRequest.database_schema,
         execution_plan: analysisRequest.explain_plan,
         analysis: JSON.stringify(analysisResult),
-        notes: `Analyzed via webhook API`,
+        notes: analysisResult.semantic_warning || `Analyzed via webhook API`,
         origin: "webhook", // CRITICAL: Set origin to webhook
       });
 
@@ -371,11 +297,11 @@ Deno.serve(async (req: Request) => {
       console.log(`[webhook] Slack notifications disabled for user ${profile.id}`);
     }
 
-    // Return analysis result
+    // Return analysis result (same format as /analyze endpoint)
     return new Response(
       JSON.stringify({
         success: true,
-        analysis: analysisResult,
+        ...analysisResult,
         message: "Query analyzed and saved successfully",
       }),
       {

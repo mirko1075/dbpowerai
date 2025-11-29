@@ -80,7 +80,7 @@ function AppPage() {
       }
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const apiUrl = `${supabaseUrl}/functions/v1/optimize`;
+      const apiUrl = `${supabaseUrl}/functions/v1/analyze`;
 
       const response = await fetch(apiUrl, {
         method: 'POST',
