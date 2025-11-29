@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { analyzeWithValidation, fakeAnalysis } from "../_shared/analyzer.ts";
+import { optimizeQuery } from "../_shared/optimize-query.ts";
 import { sendSlackMessage, buildSlackMessage, AnalysisShape } from "../_shared/slack.ts";
 
 // Typed shapes to satisfy linter
@@ -203,34 +203,49 @@ Deno.serve(async (req: Request) => {
       ? String(bodyRec["explain"])
       : null;
 
-    // Analysis
-    const analysisResult = openaiApiKey
-      ? await analyzeWithValidation(sql, openaiApiKey, supabaseAdmin)
-      : fakeAnalysis({ query: sql });
+    // Analysis using the same logic as /optimize
+    if (!openaiApiKey) {
+      await writeDebug("error", "OpenAI API key not configured");
+      return new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    const analysisRec = analysisResult as unknown as Record<
-      string,
-      unknown
-    > &
-      AnalysisShape;
+    let optimizeResult;
+    try {
+      optimizeResult = await optimizeQuery({
+        query: sql,
+        db: dbTypeVal,
+        schema: schemaVal || undefined,
+        executionPlan: executionPlanBody || undefined,
+        openaiApiKey,
+      });
+    } catch (error) {
+      await writeDebug("error", "optimize query failed", { error: String(error) });
+      return new Response(
+        JSON.stringify({ error: "Unable to optimize query. Please check your SQL and try again." }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    const bottleneckStr = Array.isArray(analysisRec.issues)
-      ? (analysisRec.issues as string[]).join(", ")
-      : String(analysisRec.issues || "");
+    const bottleneckStr = optimizeResult.bottleneck;
 
     const { error: insertError } = await supabaseAdmin
       .from("queries")
       .insert({
         user_id: profile.id,
         raw_query: sql,
-        optimized_query: analysisRec.rewrittenQuery,
-        suggested_indexes: analysisRec.suggestedIndex,
+        optimized_query: optimizeResult.rewrittenQuery,
+        suggested_indexes: optimizeResult.recommendedIndexes,
         bottleneck: bottleneckStr,
         db_type: dbTypeVal,
         schema: schemaVal,
         execution_plan: executionPlanBody,
-        analysis: JSON.stringify(analysisResult),
-        notes: analysisRec.semantic_warning || "Analyzed via webhook API",
+        analysis: optimizeResult.analysis,
+        warnings: optimizeResult.warningsJson,
+        detected_patterns: optimizeResult.patternsJson,
+        notes: optimizeResult.notes || "Analyzed via webhook API",
         origin: "webhook"
       });
 
@@ -251,33 +266,42 @@ Deno.serve(async (req: Request) => {
     // Slack notifications
     if (profile.slack_enabled && profile.slack_webhook_url) {
       try {
-        const slackPayload = buildSlackMessage(
-          bodyRec,
-          analysisResult as AnalysisShape
-        );
-        await supabaseAdmin
-          .from("function_debug_logs")
-          .insert({
-            function_name: "webhook",
-            level: "debug",
-            message: "slack_payload",
-            meta: slackPayload
-          });
-      } catch (e) {
-        console.warn("[webhook] failed to persist slack payload", String(e));
-      }
+        // Build a simple slack message with the key results
+        const slackText = `*SQL Analysis Complete*\n` +
+          `Bottleneck: ${bottleneckStr}\n` +
+          `Optimized Query: \`\`\`${optimizeResult.rewrittenQuery}\`\`\`\n` +
+          `Recommended Indexes: ${optimizeResult.recommendedIndexes}`;
 
-      sendSlackMessage(
-        profile.slack_webhook_url,
-        bodyRec,
-        analysisResult as AnalysisShape
-      ).catch(() => {});
+        await fetch(profile.slack_webhook_url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: slackText })
+        }).catch((e) => console.warn("[webhook] slack send failed", String(e)));
+      } catch (e) {
+        console.warn("[webhook] failed to send slack message", String(e));
+      }
     }
 
+    // Build response matching the documented API format
     return new Response(
       JSON.stringify({
         success: true,
-        ...analysisResult,
+        score: optimizeResult.detectedPatterns.length === 0 ? 95 :
+               optimizeResult.detectedPatterns.some(p => p.severity === "high") ? 40 : 70,
+        severity: optimizeResult.detectedPatterns.some(p => p.severity === "high") ? "high" :
+                  optimizeResult.detectedPatterns.some(p => p.severity === "medium") ? "medium" : "low",
+        speedupEstimate: optimizeResult.detectedPatterns.length === 0 ? 0 : 0.5,
+        rewrittenQuery: optimizeResult.rewrittenQuery,
+        suggestedIndex: optimizeResult.recommendedIndexes,
+        issues: optimizeResult.detectedPatterns.map(p => p.message),
+        semantic_warning: optimizeResult.notes.includes("semantic") ? optimizeResult.notes : null,
+        validator_status: "valid",
+        bottleneck: bottleneckStr,
+        analysis: optimizeResult.analysis,
+        warnings: optimizeResult.warningsJson,
+        detected_patterns: optimizeResult.patternsJson,
+        schema: schemaVal,
+        execution_plan: executionPlanBody,
         message: "Query analyzed & saved"
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

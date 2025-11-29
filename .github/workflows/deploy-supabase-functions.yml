@@ -62,7 +62,7 @@ jobs:
       - name: Apply DB migrations
         run: |
           echo "Applying Supabase migrations..."
-          supabase db push
+          supabase db push --include-all
         env:
           # Service role key is required to apply migrations safely
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
