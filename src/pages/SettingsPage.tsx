@@ -37,10 +37,10 @@ function SettingsPage() {
   const [fullName, setFullName] = useState('');
   const [bio, setBio] = useState('');
   const [company, setCompany] = useState('');
-  const [role, setRole] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [newEmail, setNewEmail] = useState('');
-  const [currentPassword, setCurrentPassword] = useState('');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -96,7 +96,6 @@ function SettingsPage() {
       setFullName(profile.full_name || '');
       setBio(profile.bio || '');
       setCompany(profile.company || '');
-      setRole(profile.role || '');
       setAvatarUrl(profile.avatar_url || '');
       setSlackWebhookUrl(profile.slack_webhook_url || '');
       setSlackEnabled(profile.slack_enabled || false);
@@ -129,7 +128,6 @@ function SettingsPage() {
           full_name: fullName,
           bio: bio,
           company: company,
-          role: role,
           avatar_url: avatarUrl,
         })
         .eq('id', user.id);
@@ -885,17 +883,6 @@ function SettingsPage() {
                     value={company}
                     onChange={(e) => setCompany(e.target.value)}
                     placeholder="Your company name"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Role</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
-                    placeholder="Your role (e.g., Developer, DBA, Admin)"
                   />
                 </div>
 
