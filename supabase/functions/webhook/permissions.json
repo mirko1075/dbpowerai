@@ -1,0 +1,9 @@
+{
+  "external": true,
+  "cors": {
+    "enabled": true,
+    "allowedHeaders": ["x-api-key", "content-type"],
+    "allowedMethods": ["POST", "OPTIONS"],
+    "allowedOrigins": ["*"]
+  }
+}
