@@ -764,6 +764,7 @@ function SettingsPage() {
           padding: 32px;
           max-width: 500px;
           width: 100%;
+          padding: 10px;
         }
 
         @keyframes spin {

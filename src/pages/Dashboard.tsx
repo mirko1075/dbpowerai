@@ -835,6 +835,7 @@ ${query.execution_plan || 'N/A'}
           overflow-y: auto;
           animation: modalEnter 0.25s ease-out;
           position: relative;
+          padding: 10px;
         }
 
         @media (max-width: 768px) {
@@ -844,6 +845,7 @@ ${query.execution_plan || 'N/A'}
             margin: auto;
             border-radius: 12px;
             max-height: 85vh;
+            padding: 10px;
           }
         }
 
@@ -1095,6 +1097,7 @@ ${query.execution_plan || 'N/A'}
           font-weight: 600;
           cursor: pointer;
           transition: all 0.2s ease;
+          display: inline-flex;
         }
 
         .secondary-button:hover:not(:disabled) {
@@ -1112,6 +1115,9 @@ ${query.execution_plan || 'N/A'}
           font-weight: 700;
           cursor: pointer;
           transition: all 0.2s ease;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .danger-button:hover:not(:disabled) {
@@ -1147,8 +1153,8 @@ ${query.execution_plan || 'N/A'}
 
         .modal-close-button {
           position: absolute;
-          top: 16px;
-          right: 16px;
+          top: 5px;
+          right: 5px;
           background: transparent;
           border: 1px solid #1f2327;
           color: #9ca3af;
