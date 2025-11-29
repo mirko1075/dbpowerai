@@ -21,5 +21,5 @@ dist-ssr
 *.sln
 *.sw?
 .env
-supabase/.temp/cli-latest
-supabase/.branches/_current_branch
+supabase/.temp
+supabase/.branches

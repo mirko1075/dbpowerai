@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { analyzeWithValidation, fakeAnalysis } from '../_shared/analyzer.ts';
+// Module load time log
+console.log('[webhook] module initialized');
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -78,35 +80,16 @@ async function sendSlackNotification(webhookUrl, sql, analysis) {
     ]
   };
   try {
-    // Debug: request method and a masked headers summary
-    console.log(`[webhook] method=${req.method}`);
-    const hdrSummary = {
-      has_x_api_key: !!req.headers.get("x-api-key") || !!req.headers.get("X-API-Key"),
-      x_api_key_preview: (() => {
-        const v = req.headers.get("x-api-key") || req.headers.get("X-API-Key");
-        if (!v) return null;
-        return `${v.slice(0,4)}...${v.slice(-4)}`;
-      })()
-    };
-    console.log('[webhook] headers=', JSON.stringify(hdrSummary));
     console.log('Sending to SLACK');
     const response = await fetch(webhookUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(message)
-    });
-    if (!response.ok) {
-      console.error("[SLACK] Failed:", response.status);
-    } else {
-      console.log("[SLACK] Notification sent!");
-    }
-  } catch (err) {
-    console.error("[SLACK] Error sending notification:", err);
+      // nothing extra to do here; we attempted persistent logging earlier but avoid doing it from the catch to keep runtime simple
+  try {
+    const preview = req.headers.get('x-api-key') || req.headers.get('X-API-Key') || null;
+    console.log('[webhook] invocation start, x-api-key-preview=', preview ? `${preview.slice(0,4)}...${preview.slice(-4)}` : 'none');
+  } catch (e) {
+    console.log('[webhook] invocation start (failed to preview header)');
   }
-}
-Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 200,
@@ -135,20 +118,31 @@ Deno.serve(async (req) => {
     }
     console.log('[webhook] env ok, openai=', !!openaiApiKey);
 
+    // create supabase admin client early (used for debug writes)
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
+
+    // helper to write a persistent debug row (best-effort, non-blocking)
+    const writeDebug = async (level: string, message: string, meta: any = null) => {
+      try {
+        await supabaseAdmin.from('function_debug_logs').insert({ function_name: 'webhook', level, message, meta });
+      } catch (err) {
+        console.warn('[webhook] writeDebug failed', String(err));
+      }
+    };
+
     // Authentication: only X-API-Key (per-user API key stored in user_profiles.api_key)
     const userApiKeyHeader = req.headers.get("x-api-key") || req.headers.get("X-API-Key");
 
     if (!userApiKeyHeader) {
       console.warn('[webhook] missing X-API-Key header');
+      await writeDebug('warn', 'missing X-API-Key header');
       return new Response(JSON.stringify({ error: "Unauthorized: Missing X-API-Key header" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { autoRefreshToken: false, persistSession: false }
-    });
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("user_profiles")
@@ -156,8 +150,10 @@ Deno.serve(async (req) => {
       .eq("api_key", userApiKeyHeader)
       .single();
     console.log('[webhook] profile lookup err=', !!profileError, 'profile=', profile ? { id: profile.id, deleted_at: profile.deleted_at, slack_enabled: !!profile.slack_enabled } : null);
+    await writeDebug('info', 'profile lookup', { profile: profile ? { id: profile.id, deleted_at: profile.deleted_at, slack_enabled: !!profile.slack_enabled } : null, profileError: profileError ? String(profileError) : null });
     if (profileError || !profile) {
       console.warn('[webhook] invalid per-user API key');
+      await writeDebug('warn', 'invalid per-user API key', { api_key_preview: `${userApiKeyHeader.slice(0,4)}...${userApiKeyHeader.slice(-4)}` });
       return new Response(JSON.stringify({ error: "Invalid API key" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -171,12 +167,60 @@ Deno.serve(async (req) => {
       });
     }
 
-    const body = await req.json();
+    // Read raw body text for HMAC verification, then parse JSON
+    const bodyText = await req.text();
+    let body = null;
+    try {
+      body = bodyText ? JSON.parse(bodyText) : null;
+    } catch (err) {
+      console.warn('[webhook] invalid JSON body parse', String(err));
+      return new Response(JSON.stringify({ error: "Invalid JSON body" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (!body || !body.sql) {
       return new Response(JSON.stringify({ error: "'sql' field required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
+    }
+
+    // HMAC verification: expect header X-Signature with hex(hmac_sha256(bodyText, api_key))
+    const sigHeader = req.headers.get('x-signature') || req.headers.get('X-Signature');
+    if (!sigHeader) {
+      await writeDebug('warn', 'missing X-Signature header', { api_key_preview: `${userApiKeyHeader.slice(0,4)}...${userApiKeyHeader.slice(-4)}` });
+      return new Response(JSON.stringify({ error: 'Missing X-Signature header' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    async function verifyHMACHex(secret: string, message: string, expectedHex: string): Promise<boolean> {
+      const enc = new TextEncoder();
+      const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+      const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+      // convert ArrayBuffer to hex
+      const hex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+      // timing-safe compare
+      if (hex.length !== expectedHex.length) return false;
+      let diff = 0;
+      for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ expectedHex.charCodeAt(i);
+      return diff === 0;
+    }
+
+    const sigValid = await verifyHMACHex(userApiKeyHeader, bodyText, sigHeader.toLowerCase());
+    if (!sigValid) {
+      await writeDebug('warn', 'invalid signature', { api_key_preview: `${userApiKeyHeader.slice(0,4)}...${userApiKeyHeader.slice(-4)}` });
+      return new Response(JSON.stringify({ error: 'Invalid signature' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Timestamp replay protection: require body.ts (epoch seconds) and ensure within allowed window
+    const nowSec = Math.floor(Date.now() / 1000);
+    const tsRaw = body.ts;
+    const ts = typeof tsRaw === 'number' ? tsRaw : (typeof tsRaw === 'string' ? parseInt(tsRaw, 10) : NaN);
+    const ALLOWED_SKEW = 120; // seconds
+    if (!ts || Number.isNaN(ts)) {
+      await writeDebug('warn', 'missing or invalid ts in request', { preview: body.sql ? body.sql.substring(0,80) : null });
+      return new Response(JSON.stringify({ error: 'Missing or invalid ts (epoch seconds) in body' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    if (Math.abs(nowSec - ts) > ALLOWED_SKEW) {
+      await writeDebug('warn', 'stale timestamp', { now: nowSec, ts, allowed_skew: ALLOWED_SKEW });
+      return new Response(JSON.stringify({ error: 'Stale timestamp' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     const analysisResult = openaiApiKey ? await analyzeWithValidation(body.sql, openaiApiKey, supabaseAdmin) : fakeAnalysis({ query: body.sql });
@@ -195,8 +239,10 @@ Deno.serve(async (req) => {
       origin: "webhook"
     });
     console.log('[webhook] insertError=', insertError);
+    await writeDebug('info', 'insert result', { insertError: insertError ? String(insertError) : null });
     if (insertError) {
       console.error('[webhook] failed to insert query:', insertError);
+      await writeDebug('error', 'failed to insert query', { insertError: String(insertError) });
       return new Response(JSON.stringify({ error: "Failed to save", details: insertError }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
