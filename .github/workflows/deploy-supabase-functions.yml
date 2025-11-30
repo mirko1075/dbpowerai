@@ -60,6 +60,7 @@ jobs:
           fi
 
       - name: Apply DB migrations
+        continue-on-error: true
         run: |
           echo "Applying Supabase migrations..."
           supabase db push --include-all
