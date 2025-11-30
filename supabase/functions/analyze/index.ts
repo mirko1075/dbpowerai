@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { analyzeWithValidation, fakeAnalysis, type AnalysisRequest, type AnalysisResult } from '../_shared/analyzer.ts';
+import { analyzeWithValidation, fakeAnalysis, type AnalysisRequest, type AnalysisResult } from '../shared/analyzer.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

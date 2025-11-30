@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { optimizeQuery } from "../_shared/optimize-query.ts";
-import { sendSlackMessage, buildSlackMessage, AnalysisShape } from "../_shared/slack.ts";
+import { optimizeQuery } from "../shared/optimize-query.ts";
+import { sendSlackMessage, buildSlackMessage, AnalysisShape } from "../shared/slack.ts";
 
 // Typed shapes to satisfy linter
 type Profile = {
