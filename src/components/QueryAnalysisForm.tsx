@@ -31,7 +31,7 @@ interface QueryAnalysisFormProps {
 }
 
 function QueryAnalysisForm({ mode, onFreeTrialExpired }: QueryAnalysisFormProps) {
-  const [database, setDatabase] = useState('PostgreSQL');
+  const [database, setDatabase] = useState('MySQL');
   const [sqlQuery, setSqlQuery] = useState('');
   const [schema, setSchema] = useState('');
   const [executionPlan, setExecutionPlan] = useState('');
