@@ -222,7 +222,7 @@ function QueryAnalyzerCard({ result }: Props) {
               color: '#9ca3af',
               fontWeight: '600'
             }}>
-              {result.severity.charAt(0).toUpperCase() + result.severity.slice(1)}
+              {result.severity && result.severity.charAt(0).toUpperCase() + result.severity.slice(1)}
             </div>
           </div>
 
@@ -248,7 +248,7 @@ function QueryAnalyzerCard({ result }: Props) {
           </div>
         </div>
 
-        {result.issues.length > 0 && (
+        {result.issues?.length > 0 && (
           <div style={{ marginBottom: '32px' }}>
             <h3 style={{
               fontSize: '18px',

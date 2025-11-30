@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { logEvent } from '../lib/logEvent';
 import { trackEvent } from '../utils/analytics';
+import AnalysisScoreCard from '../components/AnalysisScoreCard';
 import {
   X,
   Eye,
@@ -2132,6 +2133,15 @@ ${query.execution_plan || 'N/A'}
                   }}>
                     ID: {selectedQuery.id.slice(0, 8)}...
                   </p>
+                </div>
+
+                {/* Analysis Score Card */}
+                <div style={{ padding: 'clamp(20px, 4vw, 32px) clamp(20px, 4vw, 32px) 0' }}>
+                  <AnalysisScoreCard
+                    score={patterns.length === 0 ? 95 : patterns.some(p => p.severity === "high") ? 40 : 70}
+                    severity={severity}
+                    speedupEstimate={improvement / 100}
+                  />
                 </div>
 
               <div style={{ padding: 'clamp(20px, 4vw, 32px)' }}>

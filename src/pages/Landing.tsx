@@ -1,27 +1,12 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { getOrCreateFreeToken, isFreeTokenUsed, markFreeTokenAsUsed } from '../lib/freeToken';
+import { isFreeTokenUsed } from '../lib/freeToken';
 import { trackEvent } from '../lib/tracking';
-import QueryAnalyzerCard from '../components/QueryAnalyzerCard';
 import FreeTrialModal from '../components/FreeTrialModal';
 import FloatingCta from '../components/FloatingCta';
-
-interface AnalysisResult {
-  score: number;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  issues: string[];
-  suggestedIndex: string;
-  rewrittenQuery: string;
-  speedupEstimate: number;
-}
+import QueryAnalysisForm from '../components/QueryAnalysisForm';
 
 function Landing() {
-  const [query, setQuery] = useState('');
-  const [schema, setSchema] = useState('');
-  const [explain, setExplain] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
   const [showFreeTrialModal, setShowFreeTrialModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -45,81 +30,6 @@ function Landing() {
   const checkAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     setIsAuthenticated(!!session);
-  };
-
-  const handleAnalyze = async () => {
-    if (!query.trim()) {
-      alert('Please enter a SQL query');
-      return;
-    }
-
-    if (!isAuthenticated && isFreeTokenUsed()) {
-      setShowFreeTrialModal(true);
-      return;
-    }
-
-    if (!isAuthenticated) {
-      trackEvent('user_ran_free_analysis', {
-        sql_length: query.length
-      });
-    } else {
-      trackEvent('analysis_executed', {
-        logged_in: true,
-        sql_length: query.length
-      });
-    }
-
-    setAnalyzing(true);
-    setResult(null);
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      if (isAuthenticated) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          headers['Authorization'] = `Bearer ${session.access_token}`;
-        }
-      } else {
-        const freeToken = getOrCreateFreeToken();
-        headers['X-Free-Analysis-Token'] = freeToken;
-        headers['Authorization'] = `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`;
-      }
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          query: query.trim(),
-          schema: schema.trim() || undefined,
-          explain: explain.trim() || undefined
-        })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.error === 'free_limit_reached' || data.error === 'no_free_token') {
-          markFreeTokenAsUsed();
-          setShowFreeTrialModal(true);
-          return;
-        }
-        throw new Error(data.message || 'Analysis failed');
-      }
-
-      if (!isAuthenticated) {
-        markFreeTokenAsUsed();
-      }
-
-      setResult(data);
-    } catch (error) {
-      console.error('Error analyzing query:', error);
-      alert('Failed to analyze query. Please try again.');
-    } finally {
-      setAnalyzing(false);
-    }
   };
 
   return (
@@ -526,113 +436,10 @@ function Landing() {
           </div>
 
 
-          <div style={{
-            background: '#111418',
-            border: '2px solid #1f2327',
-            borderRadius: '16px',
-            padding: '40px',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)'
-          }}>
-            <textarea
-              className="query-textarea"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="SELECT * FROM orders WHERE status = 'PENDING' AND updated_at > NOW() - INTERVAL 5 DAY;"
-            />
-
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '16px',
-              marginTop: '24px'
-            }}>
-              <button
-                className="analyze-button"
-                onClick={handleAnalyze}
-                disabled={analyzing}
-              >
-                {analyzing ? 'Analyzing...' : 'Analyze now'}
-              </button>
-
-              <span
-                className="toggle-link"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-              >
-                {showAdvanced ? '▼' : '▶'} Add schema / EXPLAIN (optional)
-              </span>
-            </div>
-
-            {showAdvanced && (
-              <div className="advanced-fields" style={{
-                marginTop: '24px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '16px'
-              }}>
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    color: '#9ca3af',
-                    marginBottom: '8px'
-                  }}>
-                    Schema (optional)
-                  </label>
-                  <textarea
-                    className="query-textarea"
-                    value={schema}
-                    onChange={(e) => setSchema(e.target.value)}
-                    placeholder="CREATE TABLE orders (&#10;  id INT PRIMARY KEY,&#10;  status VARCHAR(50),&#10;  updated_at TIMESTAMP&#10;);"
-                    style={{ minHeight: '100px' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    color: '#9ca3af',
-                    marginBottom: '8px'
-                  }}>
-                    EXPLAIN output (optional)
-                  </label>
-                  <textarea
-                    className="query-textarea"
-                    value={explain}
-                    onChange={(e) => setExplain(e.target.value)}
-                    placeholder="Paste your EXPLAIN output here..."
-                    style={{ minHeight: '100px' }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div style={{
-              textAlign: 'center',
-              marginTop: '24px',
-              fontSize: '14px',
-              color: '#6b7280'
-            }}>
-              Or{' '}
-              <a
-                href="/signup"
-                style={{ color: '#00ffa3', textDecoration: 'underline' }}
-                onClick={() => trackEvent('user_clicked_create_api_key')}
-              >
-                create your API Key
-              </a>
-              {' '}and send queries via webhook
-            </div>
-          </div>
-
-          {result && (
-            <div style={{ marginTop: '48px' }}>
-              <QueryAnalyzerCard result={result} />
-            </div>
-          )}
+          <QueryAnalysisForm
+            mode="free-trial"
+            onFreeTrialExpired={() => setShowFreeTrialModal(true)}
+          />
 
           {!isAuthenticated && !isFreeTokenUsed() && (
             <div style={{
