@@ -7,7 +7,7 @@ import { buildPrompt } from './buildPrompt.ts';
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-Free-Analysis-Token",
 };
 
 interface OptimizeRequest {
@@ -294,6 +294,14 @@ Deno.serve(async (req: Request) => {
     console.log("Counters updated");
     console.log('[SQL Advisor] Analysis complete and saved');
 
+    // Calculate severity, score, and speedup estimate based on detected patterns
+    const bottleneckStr = patterns.map(p => p.message).join('; ') || 'No major issues detected';
+    const severity = patterns.some(p => p.severity === "high") ? "high" :
+                     patterns.some(p => p.severity === "medium") ? "medium" : "low";
+    const score = patterns.length === 0 ? 95 :
+                  patterns.some(p => p.severity === "high") ? 40 : 70;
+    const speedupEstimate = patterns.length === 0 ? 0 : 0.5;
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -305,6 +313,10 @@ Deno.serve(async (req: Request) => {
           recommendedIndexes: result.recommendedIndexes,
           notes: result.notes,
           detectedPatterns: patterns,
+          bottleneck: bottleneckStr,
+          severity: severity,
+          score: score,
+          speedupEstimate: speedupEstimate,
         },
       }),
       {
