@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { Copy, Check, Download, Mail } from 'lucide-react';
 import AnalysisScoreCard from './AnalysisScoreCard';
@@ -41,7 +41,7 @@ function QueryAnalysisForm({ mode, onFreeTrialExpired }: QueryAnalysisFormProps)
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [errors, setErrors] = useState({ database: '', sqlQuery: '', api: '' });
 
-  const handleOptimize = async () => {
+  const handleOptimize = useCallback(async () => {
     let hasErrors = false;
     const newErrors = { database: '', sqlQuery: '', api: '' };
 
@@ -150,16 +150,16 @@ function QueryAnalysisForm({ mode, onFreeTrialExpired }: QueryAnalysisFormProps)
       setErrors({ database: '', sqlQuery: '', api: 'Unable to optimize query. Please check your SQL and try again.' });
       setLoading(false);
     }
-  };
+  }, [database, sqlQuery, schema, executionPlan, mode, onFreeTrialExpired]);
 
-  const copyText = async (text: string, field: string) => {
+  const copyText = useCallback(async (text: string, field: string) => {
     if (!text) return;
     await navigator.clipboard.writeText(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
-  };
+  }, []);
 
-  const downloadReport = (filename: string, text: string) => {
+  const downloadReport = useCallback((filename: string, text: string) => {
     const blob = new Blob([text], { type: 'text/plain' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -167,21 +167,70 @@ function QueryAnalysisForm({ mode, onFreeTrialExpired }: QueryAnalysisFormProps)
     a.download = filename;
     a.click();
     window.URL.revokeObjectURL(url);
-  };
+  }, []);
 
-  const emailReport = (subject: string, body: string) => {
+  const emailReport = useCallback((subject: string, body: string) => {
     const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailto;
-  };
+  }, []);
 
   const rewritten = result?.rewrittenQuery ?? '';
-  const indexes = result?.recommendedIndexes ?? '';
+  const indexes = result?.recommendedIndexes ?? [];
   const analysis = result?.analysis ?? '';
   const notes = result?.notes ?? '';
   const warnings = (result?.warnings ?? []).join('\n');
   const patterns = (result?.detectedPatterns ?? [])
     .map(p => `${p.type}: ${p.message}`)
     .join('\n');
+
+  // Parse indexes to get count and formatted display
+  const parseIndexes = (indexesString: string) => {
+    if (Array.isArray(indexesString)) {
+      return {
+        count: indexesString.length,
+        formatted: indexesString.join('\n\n')
+      };
+    }
+    return {
+      count: 0, formatted: 'No index to apply'
+    }
+    // Try to parse as JSON array first
+    try {
+      const parsed = JSON.parse(indexesString);
+      if (Array.isArray(parsed)) {
+        return {
+          count: parsed.length,
+          formatted: parsed.join('\n\n')
+        };
+      }
+    } catch {
+      // Not JSON, check if it's a multi-line string with CREATE INDEX statements
+      const lines = indexesString.split('\n').filter(line => line.trim());
+      const createIndexLines = lines.filter(line =>
+        line.trim().toUpperCase().startsWith('CREATE INDEX') ||
+        line.trim().toUpperCase().startsWith('CREATE UNIQUE INDEX')
+      );
+
+      if (createIndexLines.length > 0) {
+        return {
+          count: createIndexLines.length,
+          formatted: indexesString
+        };
+      }
+    }
+
+    // Default: count by semicolons or newlines containing CREATE INDEX
+    const indexStatements = indexesString.split(';').filter(stmt =>
+      stmt.trim() && stmt.toUpperCase().includes('CREATE INDEX')
+    );
+
+    return {
+      count: Math.max(indexStatements.length, 1),
+      formatted: indexesString
+    };
+  };
+
+  const { count: indexCount, formatted: formattedIndexes } = parseIndexes(indexes);
 
   const fullReport = `SQL QUERY ADVISOR REPORT
 ========================
@@ -190,7 +239,7 @@ Rewritten Query:
 ${rewritten}
 
 Recommended Indexes:
-${indexes}
+${formattedIndexes}
 
 Analysis:
 ${analysis}
@@ -734,6 +783,7 @@ ${notes}
                 score={result.score}
                 severity={result.severity}
                 speedupEstimate={result.speedupEstimate}
+                indexCount={indexCount}
               />
             )}
 
@@ -796,7 +846,7 @@ ${notes}
                   <span>Suggested Indexes</span>
                   <button
                     className={`copy-button ${copiedField === 'suggested_indexes' ? 'copied' : ''}`}
-                    onClick={() => copyText(result.recommendedIndexes, 'suggested_indexes')}
+                    onClick={() => copyText(formattedIndexes, 'suggested_indexes')}
                   >
                     {copiedField === 'suggested_indexes' ? (
                       <>
@@ -811,7 +861,9 @@ ${notes}
                     )}
                   </button>
                 </div>
-                <div className="code-block">{result.recommendedIndexes}</div>
+                <div className="code-block" style={{ whiteSpace: 'pre-wrap' }}>
+                  {formattedIndexes}
+                </div>
               </div>
             )}
 

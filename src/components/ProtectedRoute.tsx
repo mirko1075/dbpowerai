@@ -16,6 +16,7 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
     }
   }, [user, isLoading, navigate]);
 
+  // Show loading spinner while auth is being verified
   if (isLoading) {
     return (
       <div style={{
@@ -47,10 +48,9 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
-  if (!user) {
-    return null;
-  }
-
+  // ✅ FIX: Don't return null here - it causes white screen flash
+  // The useEffect above will navigate to /login if user is not authenticated
+  // We render children immediately to prevent flash, and let navigation handle the redirect
   return <>{children}</>;
 }
 

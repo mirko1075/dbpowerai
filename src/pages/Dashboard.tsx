@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { logEvent } from '../lib/logEvent';
@@ -63,7 +63,6 @@ type DateFilter = 'all' | 'today' | '7days' | '30days';
 
 function Dashboard() {
   const [queries, setQueries] = useState<Query[]>([]);
-  const [filteredQueries, setFilteredQueries] = useState<Query[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedQuery, setSelectedQuery] = useState<Query | null>(null);
@@ -154,10 +153,6 @@ function Dashboard() {
   };
 
   useEffect(() => {
-    applyFiltersAndSort();
-  }, [queries, searchTerm, dbFilter, originFilter, dateFilter, sortField, sortDirection]);
-
-  useEffect(() => {
     if (selectedQuery || deleteConfirm || showWelcomeModal) {
       document.body.style.overflow = 'hidden';
     } else {
@@ -168,7 +163,7 @@ function Dashboard() {
     };
   }, [selectedQuery, deleteConfirm, showWelcomeModal]);
 
-  const fetchQueries = async () => {
+  const fetchQueries = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -215,9 +210,11 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [navigate]);
 
-  const applyFiltersAndSort = () => {
+  // ✅ OPTIMIZATION: Use useMemo to compute filtered queries instead of useEffect + setState
+  // This prevents unnecessary re-renders and only recalculates when dependencies change
+  const filteredQueries = useMemo(() => {
     let filtered = [...queries];
 
     if (searchTerm) {
@@ -301,17 +298,17 @@ function Dashboard() {
       }
     });
 
-    setFilteredQueries(filtered);
-  };
+    return filtered;
+  }, [queries, searchTerm, dbFilter, originFilter, dateFilter, sortField, sortDirection]);
 
-  const handleSort = (field: SortField) => {
+  const handleSort = useCallback((field: SortField) => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
       setSortDirection('desc');
     }
-  };
+  }, [sortField, sortDirection]);
 
   const getDbBadgeColor = (db: string) => {
     const colors: Record<string, string> = {
@@ -339,7 +336,7 @@ function Dashboard() {
     return `${year}-${month}-${day} ${hours}:${minutes}`;
   };
 
-  const handleRerun = async (query: Query) => {
+  const handleRerun = useCallback(async (query: Query) => {
     setRerunLoading(true);
     setError('');
     setSuccessMessage('');
@@ -385,9 +382,9 @@ function Dashboard() {
     } finally {
       setRerunLoading(false);
     }
-  };
+  }, [fetchQueries]);
 
-  const handleDelete = async (queryId: string) => {
+  const handleDelete = useCallback(async (queryId: string) => {
     const queryToDelete = queries.find(q => q.id === queryId);
 
     try {
@@ -412,9 +409,9 @@ function Dashboard() {
     } catch (err: unknown) {
       setError((err as Error)?.message || 'Failed to delete query');
     }
-  };
+  }, [queries, fetchQueries]);
 
-  const copyText = async (text: string, field: string, query?: Query) => {
+  const copyText = useCallback(async (text: string, field: string, query?: Query) => {
     if (!text) return;
     await navigator.clipboard.writeText(text);
     setCopiedField(field);
@@ -425,9 +422,9 @@ function Dashboard() {
       result_id: query?.id || selectedQuery?.id || 'unknown',
       has_indexes: !!(query?.suggested_indexes || selectedQuery?.suggested_indexes)
     });
-  };
+  }, [selectedQuery]);
 
-  const downloadReport = (filename: string, text: string) => {
+  const downloadReport = useCallback((filename: string, text: string) => {
     const blob = new Blob([text], { type: 'text/plain' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -441,9 +438,9 @@ function Dashboard() {
       result_id: selectedQuery?.id || 'unknown',
       has_indexes: !!selectedQuery?.suggested_indexes
     });
-  };
+  }, [selectedQuery]);
 
-  const emailReport = (subject: string, body: string) => {
+  const emailReport = useCallback((subject: string, body: string) => {
     const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(mailto, '_blank');
 
@@ -452,9 +449,9 @@ function Dashboard() {
       result_id: selectedQuery?.id || 'unknown',
       has_indexes: !!selectedQuery?.suggested_indexes
     });
-  };
+  }, [selectedQuery]);
 
-  const generateFullReport = (query: Query) => {
+  const generateFullReport = useCallback((query: Query) => {
     const patterns = getDetectedPatterns(query);
     const severity = calculateSeverity(patterns);
     const improvement = calculateImprovement(patterns);
@@ -475,7 +472,7 @@ Optimized Query:
 ${query.optimized_query || 'N/A'}
 
 Recommended Indexes:
-${query.suggested_indexes || 'N/A'}
+${formatIndexes(query.suggested_indexes) || 'N/A'}
 
 Bottleneck Analysis:
 ${query.bottleneck || 'N/A'}
@@ -498,21 +495,21 @@ ${query.schema || 'N/A'}
 Execution Plan:
 ${query.execution_plan || 'N/A'}
 `;
-  };
+  }, []);
 
-  const copyQueryText = async (text: string, queryId: string) => {
+  const copyQueryText = useCallback(async (text: string, queryId: string) => {
     if (!text) return;
     await navigator.clipboard.writeText(text);
     setCopiedQueryId(queryId);
     setTimeout(() => setCopiedQueryId(null), 2000);
-  };
+  }, []);
 
-  const copyIndexesText = async (text: string, queryId: string) => {
+  const copyIndexesText = useCallback(async (text: string, queryId: string) => {
     if (!text) return;
     await navigator.clipboard.writeText(text);
     setCopiedIndexesId(queryId);
     setTimeout(() => setCopiedIndexesId(null), 2000);
-  };
+  }, []);
 
   const getDetectedPatterns = (query: Query): DetectedPattern[] => {
     if (!query.detected_patterns) return [];
@@ -521,6 +518,24 @@ ${query.execution_plan || 'N/A'}
     } catch {
       return [];
     }
+  };
+
+  const formatIndexes = (indexesString: string | null): string => {
+    if (!indexesString || indexesString.toLowerCase().includes('no index') || indexesString.toLowerCase().includes('none')) {
+      return indexesString || '';
+    }
+
+    // Try to parse as JSON array first
+    try {
+      const parsed = JSON.parse(indexesString);
+      if (Array.isArray(parsed)) {
+        return parsed.join('\n\n');
+      }
+    } catch {
+      // Not JSON, return as is
+    }
+
+    return indexesString;
   };
 
   const severityScore: Record<string, number> = {
@@ -2201,7 +2216,7 @@ ${query.execution_plan || 'N/A'}
                       <span>Suggested Indexes</span>
                       <button
                         className={`copy-button ${copiedField === 'suggested_indexes' ? 'copied' : ''}`}
-                        onClick={() => copyText(selectedQuery.suggested_indexes!, 'suggested_indexes', selectedQuery)}
+                        onClick={() => copyText(formatIndexes(selectedQuery.suggested_indexes!), 'suggested_indexes', selectedQuery)}
                       >
                         {copiedField === 'suggested_indexes' ? (
                           <>
@@ -2216,7 +2231,9 @@ ${query.execution_plan || 'N/A'}
                         )}
                       </button>
                     </div>
-                    <div className="code-block">{selectedQuery.suggested_indexes}</div>
+                    <div className="code-block" style={{ whiteSpace: 'pre-wrap' }}>
+                      {formatIndexes(selectedQuery.suggested_indexes)}
+                    </div>
                   </div>
                 )}
 

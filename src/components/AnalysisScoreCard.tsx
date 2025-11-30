@@ -2,9 +2,10 @@ interface AnalysisScoreCardProps {
   score: number;
   severity: 'low' | 'medium' | 'high' | 'critical';
   speedupEstimate: number;
+  indexCount?: number;
 }
 
-function AnalysisScoreCard({ score, severity, speedupEstimate }: AnalysisScoreCardProps) {
+function AnalysisScoreCard({ score, severity, speedupEstimate, indexCount = 0 }: AnalysisScoreCardProps) {
   const getSeverityColor = () => {
     switch (severity) {
       case 'high':
@@ -81,7 +82,7 @@ function AnalysisScoreCard({ score, severity, speedupEstimate }: AnalysisScoreCa
         </div>
       </div>
 
-      {/* Missing Index / Severity Card */}
+      {/* Index Count / Severity Card */}
       <div style={{
         background: '#0a0c0e',
         border: `2px solid ${getSeverityColor()}`,
@@ -93,30 +94,61 @@ function AnalysisScoreCard({ score, severity, speedupEstimate }: AnalysisScoreCa
         alignItems: 'center',
         justifyContent: 'center'
       }}>
-        <div style={{
-          width: '60px',
-          height: '60px',
-          borderRadius: '50%',
-          background: getSeverityColor(),
-          marginBottom: '12px'
-        }} />
-        <div style={{
-          fontSize: '14px',
-          fontWeight: '700',
-          color: '#9ca3af',
-          textTransform: 'uppercase',
-          letterSpacing: '1px',
-          marginBottom: '4px'
-        }}>
-          MISSING INDEX
-        </div>
-        <div style={{
-          fontSize: '13px',
-          color: getSeverityColor(),
-          fontWeight: '600'
-        }}>
-          {getSeverityLabel()}
-        </div>
+        {indexCount === 0 ? (
+          <>
+            <div style={{
+              width: '60px',
+              height: '60px',
+              borderRadius: '50%',
+              background: getSeverityColor(),
+              marginBottom: '12px'
+            }} />
+            <div style={{
+              fontSize: '14px',
+              fontWeight: '700',
+              color: '#9ca3af',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              marginBottom: '4px'
+            }}>
+              MISSING INDEX
+            </div>
+            <div style={{
+              fontSize: '13px',
+              color: getSeverityColor(),
+              fontWeight: '600'
+            }}>
+              {getSeverityLabel()}
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{
+              fontSize: '48px',
+              fontWeight: '700',
+              color: '#00ffa3',
+              marginBottom: '8px'
+            }}>
+              {indexCount}
+            </div>
+            <div style={{
+              fontSize: '14px',
+              fontWeight: '700',
+              color: '#9ca3af',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              marginBottom: '4px'
+            }}>
+              {indexCount === 1 ? 'INDEX SUGGESTED' : 'INDEXES SUGGESTED'}
+            </div>
+            <div style={{
+              fontSize: '13px',
+              color: '#6b7280'
+            }}>
+              Performance Boost
+            </div>
+          </>
+        )}
       </div>
 
       {/* Speedup Estimate Card */}
