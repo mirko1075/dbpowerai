@@ -35,10 +35,10 @@ function AnalysisScoreCard({ score, severity, speedupEstimate, indexCount = 0 }:
   };
 
   const getScoreLabel = () => {
-    if (score >= 80) return 'Ottimo';
-    if (score >= 60) return 'Buono';
-    if (score >= 40) return 'Medio';
-    return 'Basso';
+    if (score >= 80) return 'Very good';
+    if (score >= 60) return 'Good';
+    if (score >= 40) return 'Average';
+    return 'Low';
   };
 
   return (
