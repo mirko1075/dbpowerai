@@ -1,27 +1,12 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { getOrCreateFreeToken, isFreeTokenUsed, markFreeTokenAsUsed } from '../lib/freeToken';
+import { isFreeTokenUsed } from '../lib/freeToken';
 import { trackEvent } from '../lib/tracking';
-import QueryAnalyzerCard from '../components/QueryAnalyzerCard';
 import FreeTrialModal from '../components/FreeTrialModal';
 import FloatingCta from '../components/FloatingCta';
-
-interface AnalysisResult {
-  score: number;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  issues: string[];
-  suggestedIndex: string;
-  rewrittenQuery: string;
-  speedupEstimate: number;
-}
+import QueryAnalysisForm from '../components/QueryAnalysisForm';
 
 function Landing() {
-  const [query, setQuery] = useState('');
-  const [schema, setSchema] = useState('');
-  const [explain, setExplain] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
   const [showFreeTrialModal, setShowFreeTrialModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -45,81 +30,6 @@ function Landing() {
   const checkAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     setIsAuthenticated(!!session);
-  };
-
-  const handleAnalyze = async () => {
-    if (!query.trim()) {
-      alert('Please enter a SQL query');
-      return;
-    }
-
-    if (!isAuthenticated && isFreeTokenUsed()) {
-      setShowFreeTrialModal(true);
-      return;
-    }
-
-    if (!isAuthenticated) {
-      trackEvent('user_ran_free_analysis', {
-        sql_length: query.length
-      });
-    } else {
-      trackEvent('analysis_executed', {
-        logged_in: true,
-        sql_length: query.length
-      });
-    }
-
-    setAnalyzing(true);
-    setResult(null);
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      if (isAuthenticated) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          headers['Authorization'] = `Bearer ${session.access_token}`;
-        }
-      } else {
-        const freeToken = getOrCreateFreeToken();
-        headers['X-Free-Analysis-Token'] = freeToken;
-        headers['Authorization'] = `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`;
-      }
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          query: query.trim(),
-          schema: schema.trim() || undefined,
-          explain: explain.trim() || undefined
-        })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.error === 'free_limit_reached' || data.error === 'no_free_token') {
-          markFreeTokenAsUsed();
-          setShowFreeTrialModal(true);
-          return;
-        }
-        throw new Error(data.message || 'Analysis failed');
-      }
-
-      if (!isAuthenticated) {
-        markFreeTokenAsUsed();
-      }
-
-      setResult(data);
-    } catch (error) {
-      console.error('Error analyzing query:', error);
-      alert('Failed to analyze query. Please try again.');
-    } finally {
-      setAnalyzing(false);
-    }
   };
 
   return (
@@ -405,33 +315,19 @@ function Landing() {
               lineHeight: '1.1',
               letterSpacing: '-0.03em'
             }}>
-              Fix Slow SQL Queries Automatically with a Rule-Based Analyzer
+              Fix slow SQL queries
             </h1>
-            <h2>
-            Detect slow SQL queries automatically. DBPowerAI analyzes EXPLAIN plans, identifies missing indexes, JOIN issues & performance bottlenecks. MySQL & PostgreSQL. Rule-based AI + DevOps integration.
-            </h2>
             <p style={{
-              fontSize: 'clamp(22px, 3vw, 32px)',
-              color: '#00ffa3',
-              marginBottom: '24px',
-              fontWeight: '600'
+              fontSize: 'clamp(18px, 2.5vw, 24px)',
+              color: '#9ca3af',
+              marginBottom: '32px',
+              lineHeight: '1.6',
+              maxWidth: '700px',
+              margin: '0 auto 32px'
             }}>
-              Without becoming a DBA.
+              Paste your query. Get instant diagnosis, performance score, rewritten SQL, and index recommendations.
             </p>
           <FloatingCta />
-            <p style={{
-              fontSize: '18px',
-              color: '#9ca3af',
-              lineHeight: '1.7',
-              maxWidth: '700px',
-              margin: '0 auto'
-            }}>
-              Paste a slow query, click Analyze, and watch the magic happen:<br />
-              score, issues, index suggestions, rewritten fix, and estimated speedup.<br />
-              <span style={{ color: '#6b7280', fontSize: '16px' }}>
-                It feels like a game — but it actually works.
-              </span>
-            </p>
 
             <div className="animated-terminal">
               <div className="terminal-header">
@@ -457,116 +353,93 @@ function Landing() {
                 </div>
               </div>
             </div>
-          </div>
 
-
-          <div style={{
-            background: '#111418',
-            border: '2px solid #1f2327',
-            borderRadius: '16px',
-            padding: '40px',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)'
-          }}>
-            <textarea
-              className="query-textarea"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="SELECT * FROM orders WHERE status = 'PENDING' AND updated_at > NOW() - INTERVAL 5 DAY;"
-            />
-
+            {/* Benefits Section */}
             <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '16px',
-              marginTop: '24px'
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+              gap: '24px',
+              marginTop: '60px'
             }}>
-              <button
-                className="analyze-button"
-                onClick={handleAnalyze}
-                disabled={analyzing}
-              >
-                {analyzing ? 'Analyzing...' : 'Analyze now'}
-              </button>
-
-              <span
-                className="toggle-link"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-              >
-                {showAdvanced ? '▼' : '▶'} Add schema / EXPLAIN (optional)
-              </span>
-            </div>
-
-            {showAdvanced && (
-              <div className="advanced-fields" style={{
-                marginTop: '24px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '16px'
+              <div style={{
+                background: '#111418',
+                border: '1px solid #1f2327',
+                borderRadius: '12px',
+                padding: '24px',
+                textAlign: 'left'
               }}>
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    color: '#9ca3af',
-                    marginBottom: '8px'
-                  }}>
-                    Schema (optional)
-                  </label>
-                  <textarea
-                    className="query-textarea"
-                    value={schema}
-                    onChange={(e) => setSchema(e.target.value)}
-                    placeholder="CREATE TABLE orders (&#10;  id INT PRIMARY KEY,&#10;  status VARCHAR(50),&#10;  updated_at TIMESTAMP&#10;);"
-                    style={{ minHeight: '100px' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    color: '#9ca3af',
-                    marginBottom: '8px'
-                  }}>
-                    EXPLAIN output (optional)
-                  </label>
-                  <textarea
-                    className="query-textarea"
-                    value={explain}
-                    onChange={(e) => setExplain(e.target.value)}
-                    placeholder="Paste your EXPLAIN output here..."
-                    style={{ minHeight: '100px' }}
-                  />
-                </div>
+                <h3 style={{
+                  fontSize: '18px',
+                  fontWeight: '700',
+                  color: '#00ffa3',
+                  marginBottom: '12px'
+                }}>
+                  Instant diagnosis
+                </h3>
+                <p style={{
+                  fontSize: '15px',
+                  color: '#9ca3af',
+                  lineHeight: '1.6'
+                }}>
+                  Paste SQL. Get static analysis with bottleneck detection, performance score, and estimated improvements.
+                </p>
               </div>
-            )}
 
-            <div style={{
-              textAlign: 'center',
-              marginTop: '24px',
-              fontSize: '14px',
-              color: '#6b7280'
-            }}>
-              Or{' '}
-              <a
-                href="/signup"
-                style={{ color: '#00ffa3', textDecoration: 'underline' }}
-                onClick={() => trackEvent('user_clicked_create_api_key')}
-              >
-                create your API Key
-              </a>
-              {' '}and send queries via webhook
+              <div style={{
+                background: '#111418',
+                border: '1px solid #1f2327',
+                borderRadius: '12px',
+                padding: '24px',
+                textAlign: 'left'
+              }}>
+                <h3 style={{
+                  fontSize: '18px',
+                  fontWeight: '700',
+                  color: '#00ffa3',
+                  marginBottom: '12px'
+                }}>
+                  No DBA expertise needed
+                </h3>
+                <p style={{
+                  fontSize: '15px',
+                  color: '#9ca3af',
+                  lineHeight: '1.6'
+                }}>
+                  Understand EXPLAIN plans, execution costs, and indexing strategies — explained in plain English.
+                </p>
+              </div>
+
+              <div style={{
+                background: '#111418',
+                border: '1px solid #1f2327',
+                borderRadius: '12px',
+                padding: '24px',
+                textAlign: 'left'
+              }}>
+                <h3 style={{
+                  fontSize: '18px',
+                  fontWeight: '700',
+                  color: '#00ffa3',
+                  marginBottom: '12px'
+                }}>
+                  Built for teams and automation
+                </h3>
+                <p style={{
+                  fontSize: '15px',
+                  color: '#9ca3af',
+                  lineHeight: '1.6'
+                }}>
+                  Share analysis URLs with your team. Trigger checks via webhook from CI/CD, backends, or cronjobs.
+                </p>
+              </div>
             </div>
           </div>
 
-          {result && (
-            <div style={{ marginTop: '48px' }}>
-              <QueryAnalyzerCard result={result} />
-            </div>
-          )}
+
+          <QueryAnalysisForm
+            mode="free-trial"
+            onFreeTrialExpired={() => setShowFreeTrialModal(true)}
+          />
 
           {!isAuthenticated && !isFreeTokenUsed() && (
             <div style={{
@@ -592,12 +465,12 @@ function Landing() {
         </div>
 <>
   {/* ============================ */}
-  {/*      HOW DBPOWERAI WORKS     */}
+  {/*         FEATURES             */}
   {/* ============================ */}
 
   <section
     style={{
-      maxWidth: "860px",
+      maxWidth: "900px",
       margin: "100px auto 60px",
       padding: "0 20px",
       color: "white",
@@ -608,115 +481,118 @@ function Landing() {
         textAlign: "center",
         fontSize: "2.2rem",
         fontWeight: 700,
-        marginBottom: "50px",
+        marginBottom: "16px",
         color: "#00FFB2",
       }}
     >
-      How DBPowerAI Works
+      Everything you need to optimize SQL
     </h2>
 
     <div
       style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "45px",
-        fontSize: "1.15rem",
-        lineHeight: 1.7,
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+        gap: "32px",
+        marginTop: "48px",
       }}
     >
-      {/* Step 1 */}
-      <div>
+      {/* Feature 1 */}
+      <div
+        style={{
+          background: "#0a0c0e",
+          border: "1px solid #1f2327",
+          borderRadius: "12px",
+          padding: "28px",
+        }}
+      >
         <h3
           style={{
-            fontSize: "1.4rem",
+            fontSize: "1.3rem",
             color: "#00FFB2",
             fontWeight: 600,
-            marginBottom: "8px",
+            marginBottom: "12px",
           }}
         >
-          1. Paste a slow SQL query
+          SQL Performance Analyzer
         </h3>
-        <p style={{ opacity: 0.85 }}>
-          You paste the SQL query you want to analyze. DBPowerAI works
-          completely manually today — no setup, no ingestion, no DB connection
-          required.
+        <p style={{ opacity: 0.85, fontSize: "15px", lineHeight: 1.6 }}>
+          Static analysis of query structure, EXPLAIN plans, and schema.
+          Detects bottlenecks, missing indexes, and anti-patterns with severity ratings.
         </p>
       </div>
 
-      {/* Step 2 */}
-      <div>
+      {/* Feature 2 */}
+      <div
+        style={{
+          background: "#0a0c0e",
+          border: "1px solid #1f2327",
+          borderRadius: "12px",
+          padding: "28px",
+        }}
+      >
         <h3
           style={{
-            fontSize: "1.4rem",
+            fontSize: "1.3rem",
             color: "#00FFB2",
             fontWeight: 600,
-            marginBottom: "8px",
+            marginBottom: "12px",
           }}
         >
-          2. (Optional) Add schema or EXPLAIN
+          Query Rewrite Engine
         </h3>
-        <p style={{ opacity: 0.85 }}>
-          Add CREATE TABLE statements or EXPLAIN output if you want deeper
-          diagnostics. DBPowerAI works with or without it — perfect for quick
-          debugging.
+        <p style={{ opacity: 0.85, fontSize: "15px", lineHeight: 1.6 }}>
+          Generates an optimized version of your query with semantic checks.
+          Provides estimated speedup based on query patterns. Always test in staging.
         </p>
       </div>
 
-      {/* Step 3 */}
-      <div>
+      {/* Feature 3 */}
+      <div
+        style={{
+          background: "#0a0c0e",
+          border: "1px solid #1f2327",
+          borderRadius: "12px",
+          padding: "28px",
+        }}
+      >
         <h3
           style={{
-            fontSize: "1.4rem",
+            fontSize: "1.3rem",
             color: "#00FFB2",
             fontWeight: 600,
-            marginBottom: "8px",
+            marginBottom: "12px",
           }}
         >
-          3. AI-enhanced rule engine
+          Index Advisor
         </h3>
-        <p style={{ opacity: 0.85 }}>
-          DBPowerAI combines SQL-aware AI with deterministic rules to detect the
-          most common performance issues: full table scans, missing indexes,
-          inefficient JOINs, OR conditions, functions disabling indexes and
-          implicit casts.
+        <p style={{ opacity: 0.85, fontSize: "15px", lineHeight: 1.6 }}>
+          Detects missing indexes and provides exact CREATE INDEX statements.
+          Stop guessing which columns need optimization.
         </p>
       </div>
 
-      {/* Step 4 */}
-      <div>
+      {/* Feature 4 */}
+      <div
+        style={{
+          background: "#0a0c0e",
+          border: "1px solid #1f2327",
+          borderRadius: "12px",
+          padding: "28px",
+        }}
+      >
         <h3
           style={{
-            fontSize: "1.4rem",
+            fontSize: "1.3rem",
             color: "#00FFB2",
             fontWeight: 600,
-            marginBottom: "8px",
+            marginBottom: "12px",
           }}
         >
-          4. Get fixes, index suggestions & rewritten SQL
+          Webhook API
         </h3>
-        <p style={{ opacity: 0.85 }}>
-          You receive concrete index suggestions, rewritten queries, efficiency
-          scores and estimated speedups — all explained clearly, even if you're
-          not a DBA.
-        </p>
-      </div>
-
-      {/* Step 5 */}
-      <div>
-        <h3
-          style={{
-            fontSize: "1.4rem",
-            color: "#00FFB2",
-            fontWeight: 600,
-            marginBottom: "8px",
-          }}
-        >
-          5. Coming soon: API, CI/CD & Slack alerts
-        </h3>
-        <p style={{ opacity: 0.85 }}>
-          The next version will add API automation, webhook triggers,
-          performance gates in CI/CD pipelines and Slack notifications. Today,
-          everything is manual and instantly usable.
+        <p style={{ opacity: 0.85, fontSize: "15px", lineHeight: 1.6 }}>
+          Automate SQL analysis from CI/CD pipelines, backend services, or scheduled jobs.
+          Simple authentication with x-api-key header — no JWT, no signatures.
         </p>
       </div>
     </div>
@@ -920,6 +796,119 @@ function Landing() {
       <li>• Learn SQL performance tuning faster</li>
       <li>• Compare different versions of a query</li>
     </ul>
+  </section>
+
+  {/* ============================ */}
+  {/*           FAQ                */}
+  {/* ============================ */}
+
+  <section
+    style={{
+      maxWidth: "800px",
+      margin: "100px auto 60px",
+      padding: "0 20px",
+      color: "white",
+    }}
+  >
+    <h2
+      style={{
+        textAlign: "center",
+        fontSize: "2.2rem",
+        fontWeight: 700,
+        marginBottom: "48px",
+        color: "#00FFB2",
+      }}
+    >
+      Common questions
+    </h2>
+
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "32px",
+      }}
+    >
+      <div>
+        <h3
+          style={{
+            fontSize: "1.2rem",
+            color: "#e5e5e5",
+            fontWeight: 600,
+            marginBottom: "10px",
+          }}
+        >
+          Do I need to connect my database?
+        </h3>
+        <p style={{ opacity: 0.85, fontSize: "15px", lineHeight: 1.6 }}>
+          No. DBPowerAI performs static analysis. Just paste the SQL and optionally your schema.
+        </p>
+      </div>
+
+      <div>
+        <h3
+          style={{
+            fontSize: "1.2rem",
+            color: "#e5e5e5",
+            fontWeight: 600,
+            marginBottom: "10px",
+          }}
+        >
+          What databases do you support?
+        </h3>
+        <p style={{ opacity: 0.85, fontSize: "15px", lineHeight: 1.6 }}>
+          PostgreSQL and MySQL. Schema and EXPLAIN plan support for deeper analysis.
+        </p>
+      </div>
+
+      <div>
+        <h3
+          style={{
+            fontSize: "1.2rem",
+            color: "#e5e5e5",
+            fontWeight: 600,
+            marginBottom: "10px",
+          }}
+        >
+          Can I share analyses with my team?
+        </h3>
+        <p style={{ opacity: 0.85, fontSize: "15px", lineHeight: 1.6 }}>
+          Yes. Each analysis gets a shareable URL. No login required to view.
+        </p>
+      </div>
+
+      <div>
+        <h3
+          style={{
+            fontSize: "1.2rem",
+            color: "#e5e5e5",
+            fontWeight: 600,
+            marginBottom: "10px",
+          }}
+        >
+          How accurate are the rewrites?
+        </h3>
+        <p style={{ opacity: 0.85, fontSize: "15px", lineHeight: 1.6 }}>
+          Rewrites aim to preserve query semantics using pattern-based validation. Check the semantic_warning field and always test in staging before deploying.
+        </p>
+      </div>
+
+      <div>
+        <h3
+          style={{
+            fontSize: "1.2rem",
+            color: "#e5e5e5",
+            fontWeight: 600,
+            marginBottom: "10px",
+          }}
+        >
+          Is there a free tier?
+        </h3>
+        <p style={{ opacity: 0.85, fontSize: "15px", lineHeight: 1.6 }}>
+          Yes. Free tier includes limited queries per month. Paid plans unlock unlimited analyses and webhook access.
+        </p>
+      </div>
+    </div>
   </section>
 </>
 

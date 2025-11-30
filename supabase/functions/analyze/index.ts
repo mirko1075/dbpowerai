@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { analyzeWithValidation, fakeAnalysis, type AnalysisRequest, type AnalysisResult } from '../_shared/analyzer.ts';
+import { analyzeWithValidation, fakeAnalysis, type AnalysisRequest, type AnalysisResult } from '../shared/analyzer.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -92,146 +92,31 @@ Deno.serve(async (req: Request) => {
     const estimatedTokens = estimateTokens(analysisRequest);
     const tokenCost = estimatedTokens;
 
+    // For authenticated users, call the optimize endpoint which has better analysis
     if (isAuthenticated && userId) {
-      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+      console.log("[Analyze] Authenticated user, calling optimize endpoint");
 
-      let { data: userPlan, error: planError } = await supabaseAdmin
-        .from("user_plans")
-        .select("*")
-        .eq("user_id", userId)
-        .single();
+      // Call the optimize function internally
+      const optimizeUrl = `${supabaseUrl}/functions/v1/optimize`;
+      const optimizeResponse = await fetch(optimizeUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': authHeader!,
+        },
+        body: JSON.stringify({
+          query: body.query,
+          db: body.db || 'PostgreSQL', // Default to PostgreSQL if not specified
+          schema: body.schema,
+          executionPlan: body.explain,
+        }),
+      });
 
-      if (planError && planError.code !== 'PGRST116') {
-        console.error("Error fetching user plan:", planError);
-        return new Response(
-          JSON.stringify({
-            error: "server_error",
-            message: "Unable to verify plan limits.",
-          }),
-          {
-            status: 500,
-            headers: {
-              ...corsHeaders,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-      }
+      const optimizeData = await optimizeResponse.json();
 
-      if (!userPlan) {
-        const cutoffDate = new Date('2025-12-31T23:59:59Z');
-        const isEarlyAdopterPeriod = new Date() <= cutoffDate;
-
-        if (isEarlyAdopterPeriod) {
-          await supabaseAdmin.from("user_plans").insert({
-            user_id: userId,
-            plan: 'early_adopter',
-            analysis_limit: 500,
-            token_limit: 500000,
-            early_expires_at: cutoffDate.toISOString(),
-          });
-        } else {
-          await supabaseAdmin.from("user_plans").insert({
-            user_id: userId,
-            plan: 'free',
-            analysis_limit: 20,
-            token_limit: 40000,
-          });
-        }
-
-        const { data: newPlan } = await supabaseAdmin
-          .from("user_plans")
-          .select("*")
-          .eq("user_id", userId)
-          .single();
-
-        userPlan = newPlan;
-      }
-
-      if (userPlan.analysis_used >= userPlan.analysis_limit) {
-        return new Response(
-          JSON.stringify({
-            error: "PLAN_LIMIT_REACHED",
-            limit_type: "analyses",
-            plan: userPlan.plan,
-            used: userPlan.analysis_used,
-            limit: userPlan.analysis_limit,
-            message: `You've reached your monthly limit of ${userPlan.analysis_limit} analyses on the ${userPlan.plan} plan.`,
-          }),
-          {
-            status: 429,
-            headers: {
-              ...corsHeaders,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-      }
-
-      if (userPlan.token_used + estimatedTokens > userPlan.token_limit) {
-        return new Response(
-          JSON.stringify({
-            error: "PLAN_LIMIT_REACHED",
-            limit_type: "tokens",
-            plan: userPlan.plan,
-            used: userPlan.token_used,
-            limit: userPlan.token_limit,
-            message: `You've reached your monthly token limit on the ${userPlan.plan} plan.`,
-          }),
-          {
-            status: 429,
-            headers: {
-              ...corsHeaders,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-      }
-
-      const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
-      let result: AnalysisResult;
-
-      if (openaiApiKey) {
-        console.log("[Analyze] Using LLM analysis with validation for authenticated user");
-        result = await analyzeWithValidation(analysisRequest.query, openaiApiKey, supabaseAdmin);
-      } else {
-        console.log("[Analyze] OpenAI API key not configured, using fake analysis");
-        result = fakeAnalysis(analysisRequest);
-      }
-
-      console.log("Plan before update:", userPlan);
-      console.log("Token cost:", tokenCost);
-
-      await supabaseAdmin
-        .from("user_plans")
-        .update({
-          analysis_used: userPlan.analysis_used + 1,
-          token_used: userPlan.token_used + tokenCost,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId);
-
-      console.log("Counters updated");
-
-      // Save to queries table with origin='form'
-      await supabaseAdmin
-        .from("queries")
-        .insert({
-          user_id: userId,
-          raw_query: analysisRequest.query,
-          optimized_query: result.rewrittenQuery,
-          suggested_indexes: result.suggestedIndex,
-          bottleneck: result.issues.join(", "),
-          db_type: "unknown",
-          schema: analysisRequest.schema,
-          execution_plan: analysisRequest.explain,
-          analysis: JSON.stringify(result),
-          origin: "form", // CRITICAL: Set origin to form
-          notes: result.semantic_warning || null,
-        });
-
-      return new Response(JSON.stringify(result), {
-        status: 200,
+      // Return the optimize response (which includes success, data with all fields)
+      return new Response(JSON.stringify(optimizeData), {
+        status: optimizeResponse.status,
         headers: {
           ...corsHeaders,
           "Content-Type": "application/json",
@@ -332,7 +217,34 @@ Deno.serve(async (req: Request) => {
 
     const result = fakeAnalysis(analysisRequest);
 
-    return new Response(JSON.stringify(result), {
+    // Format the response to match the optimize endpoint format
+    // Extract patterns from issues for severity calculation
+    const patterns = (result.issues || []).map(issue => ({
+      type: 'performance',
+      severity: 'medium' as const,
+      message: issue
+    }));
+
+    const severity = patterns.length > 0 ? 'medium' : 'low';
+    const score = patterns.length === 0 ? 95 : 70;
+    const speedupEstimate = patterns.length === 0 ? 0 : 0.3;
+    const bottleneck = (result.issues || []).join('; ') || 'No major issues detected';
+
+    return new Response(JSON.stringify({
+      success: true,
+      data: {
+        analysis: `Free trial analysis completed. For detailed database-specific optimization, please sign up.`,
+        warnings: result.issues || [],
+        rewrittenQuery: result.rewrittenQuery || '',
+        recommendedIndexes: result.suggestedIndex || '',
+        notes: result.semantic_warning || 'This is a basic analysis. Sign up for advanced features.',
+        detectedPatterns: patterns,
+        bottleneck,
+        severity,
+        score,
+        speedupEstimate,
+      }
+    }), {
       status: 200,
       headers: {
         ...corsHeaders,

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -19,11 +19,11 @@ function Navbar() {
   const location = useLocation();
 
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     await signOut();
     setMobileMenuOpen(false);
     navigate('/');
-  };
+  }, [signOut, navigate]);
 
   // Load profile when user changes
   useEffect(() => {
@@ -31,7 +31,25 @@ function Navbar() {
       if (user) {
         const userProfile = await getProfile(user.id);
         setProfile(userProfile);
-        checkAdminRole();
+
+        // ✅ OPTIMIZATION: Check admin role using user from context (no redundant API call)
+        try {
+          const { data: profile, error } = await supabase
+            .from('user_profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single();
+
+          if (error) {
+            console.error('Error checking admin role:', error);
+            setIsAdmin(false);
+          } else {
+            setIsAdmin(profile?.role === 'admin');
+          }
+        } catch (error) {
+          console.error('Error in checkAdminRole:', error);
+          setIsAdmin(false);
+        }
       } else {
         setProfile(null);
         setIsAdmin(false);
@@ -39,33 +57,6 @@ function Navbar() {
     };
     loadProfile();
   }, [user]); // Re-run when user changes from AuthContext
-
-  const checkAdminRole = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setIsAdmin(false);
-        return;
-      }
-
-      const { data: profile, error } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-      if (error) {
-        console.error('Error checking admin role:', error);
-        setIsAdmin(false);
-        return;
-      }
-
-      setIsAdmin(profile?.role === 'admin');
-    } catch (error) {
-      console.error('Error in checkAdminRole:', error);
-      setIsAdmin(false);
-    }
-  };
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -463,4 +454,5 @@ function Navbar() {
   );
 }
 
-export default Navbar;
+// ✅ OPTIMIZATION: Memoize component to prevent unnecessary re-renders
+export default memo(Navbar);
